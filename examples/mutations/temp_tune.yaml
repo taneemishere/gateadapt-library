@@ -1,0 +1,6 @@
+id: temp_tune
+kind: prompt_patch
+scope: 'tags.type == "answer"'
+family: output-contracts
+patch:
+  temperature: 0.9

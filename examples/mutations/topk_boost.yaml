@@ -1,0 +1,5 @@
+id: topk-boost
+kind: retrieval_rule
+patch:
+  retrieval.top_k: 8
+scope: 'tags.type == "answer"'

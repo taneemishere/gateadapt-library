@@ -1,0 +1,6 @@
+id: terse_check
+kind: prompt_patch
+scope: 'tags.type == "answer"'
+family: output-contracts
+patch:
+  temperature: 0.2

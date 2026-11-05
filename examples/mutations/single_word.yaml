@@ -1,0 +1,6 @@
+id: single_word
+kind: prompt
+scope: 'tags.type == "answer"'
+family: output-contracts
+patch:
+  prompt_suffix: "Respond with a single word."

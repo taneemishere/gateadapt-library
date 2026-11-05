@@ -1,0 +1,5 @@
+id: memoize-dev
+kind: prompt_patch
+patch:
+  memoize_dev: true
+scope: all

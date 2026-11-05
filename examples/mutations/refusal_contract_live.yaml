@@ -1,0 +1,6 @@
+id: refusal_contract_live
+kind: prompt
+scope: 'tags.type == "refusal"'
+family: output-contracts
+patch:
+  prompt_suffix: "If the context does not contain enough information to answer the task, respond with exactly 'REFUSE' and nothing else."

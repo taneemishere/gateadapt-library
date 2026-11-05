@@ -1,0 +1,5 @@
+id: needs-pair-b
+kind: prompt_patch
+patch:
+  needs_pair.b: true
+scope: 'all'

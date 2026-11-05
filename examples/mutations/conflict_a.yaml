@@ -1,0 +1,5 @@
+id: conflict-a
+kind: retrieval_rule
+patch:
+  conflict.a: true
+scope: 'all'

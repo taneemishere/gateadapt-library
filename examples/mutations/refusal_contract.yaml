@@ -1,0 +1,5 @@
+id: refusal-contract
+kind: contract_patch
+patch:
+  contract: true
+scope: 'tags.type == "refusal"'

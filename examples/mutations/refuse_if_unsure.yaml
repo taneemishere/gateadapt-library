@@ -1,0 +1,6 @@
+id: refuse_if_unsure
+kind: prompt
+scope: 'all'
+family: output-contracts
+patch:
+  prompt_suffix: "If the context does not contain enough information to answer, respond with exactly 'REFUSE' and nothing else. Otherwise answer normally."

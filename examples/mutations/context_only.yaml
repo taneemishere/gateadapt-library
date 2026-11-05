@@ -1,0 +1,6 @@
+id: context_only
+kind: prompt
+scope: 'all'
+family: output-contracts
+patch:
+  prompt_suffix: "Answer ONLY if the context explicitly contains the answer; otherwise respond with exactly 'REFUSE'."

@@ -1,0 +1,5 @@
+id: answer-lift
+kind: prompt_patch
+patch:
+  lift: true
+scope: 'tags.type == "answer"'

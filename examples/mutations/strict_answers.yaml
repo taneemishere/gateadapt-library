@@ -1,0 +1,6 @@
+id: strict_answers
+kind: prompt
+scope: 'tags.type == "answer"'
+family: output-contracts
+patch:
+  prompt_suffix: "Respond with ONLY the answer — a single word or short phrase. No sentences, no explanation, no punctuation."

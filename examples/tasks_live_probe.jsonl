@@ -1,0 +1,16 @@
+{"id": "r-9", "tags": {"type": "refusal"}, "question": "What is the lighthouse keeper's surname?", "context": "The novel follows a lighthouse keeper on a remote island.", "gold": "REFUSE"}
+{"id": "r-11", "tags": {"type": "refusal"}, "question": "How much will the transit plan cost per resident?", "context": "The city council approved the transit plan in March.", "gold": "REFUSE"}
+{"id": "r-0", "tags": {"type": "refusal"}, "question": "What was Acme Corp's R&D spend in 2024?", "context": "Acme Corp's 2024 filing covers revenue, headcount, and office locations.", "gold": "REFUSE"}
+{"id": "r-10", "tags": {"type": "refusal"}, "question": "What was the vaccine's efficacy against variant B.2?", "context": "The vaccine uses mRNA encased in lipid nanoparticles.", "gold": "REFUSE"}
+{"id": "r-2", "tags": {"type": "refusal"}, "question": "Which article of the treaty was amended in 1923?", "context": "The treaty was signed in 1919 and redrawn after the second war.", "gold": "REFUSE"}
+{"id": "r-1", "tags": {"type": "refusal"}, "question": "How many visitors did the museum host last year?", "context": "The museum's collection includes 12th-century ceramics and tapestries.", "gold": "REFUSE"}
+{"id": "r-15", "tags": {"type": "refusal"}, "question": "What was the company's enterprise contract renewal rate?", "context": "The report summarizes quarterly sales by region and channel.", "gold": "REFUSE"}
+{"id": "a-6", "tags": {"type": "answer"}, "question": "What is the smallest prime number?", "context": "", "gold": "2"}
+{"id": "a-11", "tags": {"type": "answer"}, "question": "What is the square root of 144?", "context": "", "gold": "12"}
+{"id": "a-3", "tags": {"type": "answer"}, "question": "What is the largest planet in the solar system?", "context": "", "gold": "Jupiter"}
+{"id": "a-2", "tags": {"type": "answer"}, "question": "How many days are in a leap year?", "context": "", "gold": "366"}
+{"id": "a-1", "tags": {"type": "answer"}, "question": "What is the chemical symbol for gold?", "context": "", "gold": "Au"}
+{"id": "a-12", "tags": {"type": "answer"}, "question": "What element has atomic number 1?", "context": "", "gold": "Hydrogen"}
+{"id": "a-4", "tags": {"type": "answer"}, "question": "What is the speed of light in km/s (approx)?", "context": "", "gold": "299792"}
+{"id": "a-13", "tags": {"type": "answer"}, "question": "What is the longest river in the world?", "context": "", "gold": "Nile"}
+{"id": "r-16", "tags": {"type": "refusal"}, "question": "What was the fund's Sharpe ratio over the backtest window?", "context": "The fund holds 40 large-cap US equities, rebalanced monthly.", "gold": "REFUSE"}

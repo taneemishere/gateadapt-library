@@ -1,0 +1,5 @@
+id: always-answer
+kind: contract_patch
+patch:
+  always_answer: true
+scope: all

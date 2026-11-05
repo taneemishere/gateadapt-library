@@ -1,0 +1,5 @@
+id: prune-hits
+kind: retrieval_rule
+patch:
+  prune: true
+scope: all

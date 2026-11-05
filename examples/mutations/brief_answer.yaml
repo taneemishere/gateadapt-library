@@ -1,0 +1,6 @@
+id: brief_answer
+kind: prompt
+scope: 'tags.type == "answer"'
+family: output-contracts
+patch:
+  prompt_suffix: "Answer briefly."
