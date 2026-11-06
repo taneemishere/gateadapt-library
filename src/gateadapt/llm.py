@@ -52,6 +52,29 @@ class LLMResponse:
     usage: dict[str, int]
 
 
+def client_identity(client: Any) -> str:
+    """Stable identity for the ambient, episode-affecting client params.
+
+    The episode cache keys by (run name, task, config): anything that can
+    change an episode's outcome but lives on the *client* rather than in
+    the per-episode config must join the run name — otherwise switching
+    model, temperature, or seed silently serves stale episodes. Model is
+    always included; temperature/seed/max_tokens join only when set, so
+    default-param clients keep their short identity. Accepts a raw client
+    or a wrapper exposing `.client`."""
+    model = getattr(client, "model", None) or getattr(
+        getattr(client, "client", None), "model", "stub"
+    )
+    parts = [str(model)]
+    for k in ("temperature", "seed", "max_tokens"):
+        v = getattr(client, k, None)
+        if v is None:
+            v = getattr(getattr(client, "client", None), k, None)
+        if v is not None:
+            parts.append(f"{k}={v}")
+    return "/".join(parts)
+
+
 class RateLimiter:
     """Token bucket: `max_rpm` calls per rolling minute. `wait()` sleeps the
     caller until a permit is available."""

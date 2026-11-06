@@ -25,12 +25,21 @@ _DEFAULT_KEYFILE = os.path.expanduser("~/gateadapt/nvapi_key")
 
 
 def build_llm(model: str | None = None) -> NvidiaNIMClient:
+    # temperature=0 keeps episodes deterministic — the eval's default;
+    # ambient params are namespaced into the cache key, so overriding via
+    # env never silently serves stale episodes
+    temperature = float(os.environ.get("GATEADAPT_LLM_TEMPERATURE", "0"))
     if os.environ.get("NVIDIA_API_KEY"):
-        return NvidiaNIMClient.from_env(model=model or "nvidia/nemotron-3-ultra-550b-a55b", max_rpm=36)
+        return NvidiaNIMClient.from_env(
+            model=model or "nvidia/nemotron-3-ultra-550b-a55b",
+            max_rpm=36,
+            temperature=temperature,
+        )
     return client_from_keyfile(
         os.environ.get("GATEADAPT_NVAPI_KEYFILE", _DEFAULT_KEYFILE),
         model=model or "nvidia/nemotron-3-ultra-550b-a55b",
         max_rpm=36,
+        temperature=temperature,
     )
 
 

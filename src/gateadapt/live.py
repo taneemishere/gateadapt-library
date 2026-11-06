@@ -21,6 +21,7 @@ import json
 import re
 from typing import Any, Callable
 
+from .llm import client_identity
 from .models import Task
 
 _DEFAULT_SYSTEM = "You are a precise agent. Answer the task correctly."
@@ -63,6 +64,9 @@ def live_run(
         text = llm.chat(messages, **overrides)
         return float(scorer(task, text))
 
+    # ambient client params are part of the episode's identity — the run
+    # name feeds the episode-cache key
+    run.__qualname__ = f"live_run[{client_identity(llm)}]"
     return run
 
 

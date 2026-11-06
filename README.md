@@ -181,9 +181,17 @@ mildly positive — and the gate again abstained rather than certify either
 direction. A `top_k: 0` zero-retrieval ablation on the same substrate
 produced the live `reject`: −0.714, 0-10, p<0.0001 (a gentler over-refusal
 sabotage abstained honestly — it only flipped the borderline tasks).
-Episode caches are namespaced by model identity
-(`run.__qualname__` → `RunSurface.name` → cache key), so switching
-`GATEADAPT_LLM_MODEL` never serves stale episodes.
+And the live `commit`: `prose-contract` (cite-every-supporting-chunk +
+plain-prose, a real grounding/verifier alignment) abstained at sampling
+temperature (+0.097, 5-2 — the two losses were pure variance) and
+**committed at temperature=0**: +0.258, 8-0, p=0.0012, probe pass.
+Deterministic episodes are the eval's honest default —
+`GATEADAPT_LLM_TEMPERATURE` overrides.
+
+Episode caches are namespaced by ambient client params
+(`run.__qualname__` → `RunSurface.name` → cache key covers model,
+temperature, seed, max_tokens), so switching `GATEADAPT_LLM_MODEL` or
+temperature never serves stale episodes.
 
 ```python
 from gateadapt.llm import NvidiaNIMClient        # or any .chat() client
