@@ -46,3 +46,38 @@ def test_persistence(tmp_path):
     s2 = RunSurface(run, draws=1, cache=c2)
     assert s2.draw(Task(id="a"), {}, 0) == 0.42
     assert s2.episodes == 0  # served from disk, no fresh run
+
+
+def test_save_leaves_no_tmp(tmp_path):
+    path = tmp_path / "episodes.json"
+    c = EpisodeCache(path)
+    c.append("k", 0.5)
+    c.save()
+    assert not (tmp_path / "episodes.json.tmp").exists()
+    assert EpisodeCache(path)._data == {"k": [0.5]}
+
+
+def test_interrupted_save_preserves_existing_file(tmp_path, monkeypatch):
+    """A kill during the write hits the tmp file, the live file keeps the
+    last complete save."""
+    from pathlib import Path
+
+    path = tmp_path / "episodes.json"
+    c = EpisodeCache(path)
+    c.append("k", 0.5)
+    c.save()
+    c.append("k2", 1.0)
+    orig = Path.write_text
+
+    def boom(self, *a, **k):
+        if self.name.endswith(".tmp"):
+            raise OSError("killed mid-write")
+        return orig(self, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", boom)
+    try:
+        c.save()
+        assert False, "save should have raised"
+    except OSError:
+        pass
+    assert EpisodeCache(path)._data == {"k": [0.5]}

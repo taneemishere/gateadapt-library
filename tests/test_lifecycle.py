@@ -118,8 +118,9 @@ class TestInteractionProbe:
         g = pair_world()
         g.admit(BASE_CFG, IX())
         g.admit(BASE_CFG, PB())
-        # ix promoted, pair recorded once despite repeated probe passes
-        assert g.interactions.count("ix+pb") == 1
+        # ix promoted, the pair is recorded once under the canonical order,
+        # not once per direction
+        assert g.interactions == ["ix+pb"]
 
 
 class TestDriftEpoch:

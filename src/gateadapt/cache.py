@@ -46,4 +46,8 @@ class EpisodeCache:
     def save(self) -> None:
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self._data, sort_keys=True))
+            # write-then-rename so a kill mid-save can't truncate the live
+            # file, the only corruptible moment is before the replace
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            tmp.write_text(json.dumps(self._data, sort_keys=True))
+            tmp.replace(self.path)

@@ -127,6 +127,21 @@ class TestAdmit:
         )
         assert d.verdict == Verdict.COMMIT
 
+    def test_callable_scope_inconclusive_skips_scan(self, world):
+        """A callable scope has no AST to refine. The scan's inside arm would
+        measure tasks the callable never fires on, so it must be a no-op."""
+        dev, probe, _ = world
+        g_call = gate(dev, probe)
+        d = g_call.admit(BASE_CFG, Mutation(id="w", patch={"lift": True}, scope=lambda t: True))
+        assert d.verdict == Verdict.ABSTAIN_WITH_RECORD
+        assert "narrowed_scope" not in d.detail
+        # the same mutation on the AST 'all' scope takes the inconclusive
+        # path into the refinement scan and spends episodes on it; the
+        # callable must not
+        g_ast = gate(dev, probe)
+        g_ast.admit(BASE_CFG, Mutation(id="w", patch={"lift": True}, scope="all"))
+        assert g_call.surface.episodes < g_ast.surface.episodes
+
 
 class TestAudit:
     def test_revoke_on_drifted_effect(self, world):
@@ -185,3 +200,17 @@ class TestLedger:
         g2.committed = committed
         g2.audit(BASE_CFG)
         assert committed_from_ledger(lp) == []
+
+    def test_same_id_reject_keeps_committed_rebuild(self, world, tmp_path):
+        """A later reject of a re-submitted id judges the candidate, not the
+        committed set. Rebuild must match what the live gate kept."""
+        dev, probe, _ = world
+        lp = str(tmp_path / "ledger.jsonl")
+        g = gate(dev, probe, ledger=lp)
+        g.admit(BASE_CFG, Mutation(id="x", patch={"contract": True},
+                                   scope='tags.type == "refusal"'))
+        d = g.admit(BASE_CFG, Mutation(id="x", patch={"always_answer": True},
+                                      scope='tags.type == "refusal"'))
+        assert d.verdict == Verdict.REJECT
+        assert [m.id for m in g.committed] == ["x"]
+        assert [m.id for m in committed_from_ledger(lp)] == ["x"]

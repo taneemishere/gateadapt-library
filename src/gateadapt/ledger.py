@@ -51,8 +51,8 @@ def committed_from_ledger(path: str | Path) -> list[Mutation]:
                 if m.id not in committed:
                     order.append(m.id)
                 committed[m.id] = m
-            elif verdict == "reject":
-                committed.pop(art.get("id", ""), None)
+            # a reject verdict never un-commits: it judged a candidate, not the
+            # committed set. Only an explicit revoke event removes an artifact
         elif kind == "revoke":
             committed.pop(ev.get("artifact_id", ""), None)
     return [committed[i] for i in order if i in committed]

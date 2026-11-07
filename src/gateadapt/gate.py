@@ -270,7 +270,9 @@ class Gate:
         """Measure effect inside vs outside each refinement; keep refinements
         that concentrate the effect (inside positive, outside ~flat)."""
         region = [t for t in items if candidate.fires(t)]
-        if len(region) < 4:
+        # a callable scope has no AST to refine, and a tag-refined "inside"
+        # arm would measure tasks the callable never fires on
+        if len(region) < 4 or candidate.scope_fn is not None:
             return {"cands": [], "n_tested": 0}
         base_ast = candidate.scope_ast if candidate.scope_ast is not None else ("all",)
         out = []
@@ -514,22 +516,31 @@ class Gate:
                     # interaction, require a discordant-gain skew so noise
                     # alone can't fabricate a detection or a conflict
                     decisive = sign_test_p(res.pos, res.neg) < _SIGN_TAIL
-                    if res.gain >= self.pairwise_min_gain and decisive:
-                        pair = f"{a.id}+{b.id}"
+                    if not decisive:
+                        continue  # try the other direction, joint configs can differ
+                    if res.gain >= self.pairwise_min_gain:
+                        # canonical pair key, one interaction per pair, not
+                        # one per direction
+                        pair = "+".join(sorted((a.id, b.id)))
                         if pair not in self.interactions:
                             self.interactions.append(pair)
-                        ev = {"event": "interaction", "pair": pair, "gain": res.gain}
-                        events.append(ev)
-                        if self.ledger_path:
-                            append_event(self.ledger_path, {**ev})
-                    elif res.gain <= -self.pairwise_min_gain and decisive:
-                        events.append(
-                            self._revoke(
-                                a,
-                                "interaction_conflict",
-                                {"partner": b.id, "gain": res.gain},
-                            )
-                        )
+                            ev = {"event": "interaction", "pair": pair, "gain": res.gain}
+                            events.append(ev)
+                            if self.ledger_path:
+                                append_event(self.ledger_path, {**ev})
+                        break  # a decisive direction settles the pair
+                    if res.gain <= -self.pairwise_min_gain:
+                        # a conflict is symmetric, both members of the pair leave
+                        for m, other in ((a, b), (b, a)):
+                            if m.id in {mm.id for mm in self.committed}:
+                                events.append(
+                                    self._revoke(
+                                        m,
+                                        "interaction_conflict",
+                                        {"partner": other.id, "gain": res.gain},
+                                    )
+                                )
+                        break
         return events
 
     def _retry_deferred(
@@ -563,7 +574,7 @@ class Gate:
                     m.partner = m.partner or b.id
                     self.promoted_via[m.id] = b.id
                     self.committed.append(m)
-                    pair = f"{m.id}+{b.id}"
+                    pair = "+".join(sorted((m.id, b.id)))
                     if pair not in self.interactions:
                         self.interactions.append(pair)
                     ev = {
