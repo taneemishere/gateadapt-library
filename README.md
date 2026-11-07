@@ -211,6 +211,68 @@ gateadapt power --effect 0.10          # how many in-scope tasks a verdict needs
 gateadapt power --effect 0.10 --tasks examples/tasks_dev.jsonl --scope 'tags.type == "answer"'
 ```
 
+## In your CI
+
+`admit` exits 0 on commit/scope-correct/abstain and 1 on reject — the exit
+code IS the gate. The recipe for a harness repo: your PR workflow renders
+the proposed harness edit as a mutation YAML (`patch:` = the diff's
+effective-config change), then runs the measurement. The bundled
+`.github/workflows/gateadapt.yml` dogfoods exactly this pattern on the toy
+agent; for a live workload it looks like:
+
+```yaml
+name: gate
+on:
+  pull_request:
+    paths: ["harness/**", "mutations/**"]    # your harness + mutation files
+
+jobs:
+  admit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - uses: actions/cache@v4               # episodes are the spend — keep them
+        with:
+          path: |
+            episodes.json
+            ledger.jsonl
+          key: gateadapt-${{ github.sha }}
+          restore-keys: gateadapt-
+
+      - run: pip install gateadapt
+
+      - name: Measure the harness change
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          gateadapt admit mutations/${{ github.head_ref }}.yaml \
+            --config harness/config.yaml \
+            --tasks eval/dev.jsonl \
+            --probe eval/probe.jsonl \
+            --reserve eval/reserve.jsonl \
+            --run harness/agent.py:run \
+            --draws 1 --ledger ledger.jsonl --cache episodes.json
+```
+
+Notes that matter in CI:
+
+- **The episode cache is the budget** — persist it between runs
+  (`actions/cache` above) or every retry re-pays full price. Caches are
+  namespaced by task, config, *and* ambient client params (model,
+  temperature, seed), so key rotation is safe.
+- **`admit` is resumable** — kill it mid-measure and cached episodes carry
+  over; the next run measures only what's missing.
+- **Stacking needs the ledger** — `committed_from_ledger` is loaded on
+  `admit`, so share `ledger.jsonl` across PRs if later mutations must be
+  measured on top of earlier committed ones.
+- **Abstain is neutral by design** — it won't fail your pipeline; it says
+  "add evidence." Wire `--reserve` for G2 synthesis if you want abstains to
+  try resolving themselves before giving up.
+- Exit semantics: `0` commit / scope-correct / abstain · `1` reject.
+
 ## Python API
 
 ```python
