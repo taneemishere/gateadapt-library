@@ -7,11 +7,12 @@ Key comes from NVIDIA_API_KEY or the GATEADAPT_NVAPI_KEYFILE path
 (default ~/gateadapt/nvapi_key on this machine). Rate limit
 hard-capped under the provider's 40 rpm tier (default 36).
 
-    gateadapt admit --tasks examples/tasks_live_dev.jsonl \
+    gateadapt admit examples/mutations/strict_answers.yaml \
+        --config examples/config.yaml \
+        --tasks examples/tasks_live_dev.jsonl \
         --probe examples/tasks_live_probe.jsonl \
-        --run examples/live_agent.py:run --base examples/config.yaml \
-        --mutation examples/mutations/strict_answers.yaml \
-        --draws 1 --ledger live_ledger.jsonl --episodes live_episodes.json
+        --run examples/live_agent.py:run \
+        --draws 1 --ledger live_ledger.jsonl --cache live_episodes.json
 """
 
 import os

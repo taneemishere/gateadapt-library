@@ -81,6 +81,42 @@ class TestAdmit:
         assert ("eq", "tags.domain", "acme") in narrowed
         assert d.detail["heterogeneity"]["diff_in"] > d.detail["heterogeneity"]["diff_out"]
 
+    def test_scope_correct_preserves_partner(self, world, tmp_path):
+        """A declared partner dependency survives scope correction, the
+        committed artifact's to_dict carries it into the ledger."""
+        dev, probe, _ = world
+        lp = str(tmp_path / "ledger.jsonl")
+        g = gate(dev, probe, ledger=lp)
+        d = g.admit(BASE_CFG, Mutation(id="pr", patch={"prune": True}, scope="all",
+                                       partner="pb"))
+        assert d.verdict == Verdict.SCOPE_CORRECT
+        art = [e["artifact"] for e in read_ledger(lp)
+               if e["event"] == "verdict" and e["artifact"]["id"] == "pr"][0]
+        assert art["partner"] == "pb"
+
+    def test_same_id_second_commit_replaces(self, world):
+        """Re-admitting a committed id replaces it, matching the ledger
+        rebuild's dedup-by-id instead of stacking two same-id artifacts."""
+        dev, probe, _ = world
+        g = gate(dev, probe)
+        d1 = g.admit(BASE_CFG, Mutation(id="x", patch={"contract": True},
+                                        scope='tags.type == "refusal"'))
+        assert d1.verdict == Verdict.COMMIT
+        d2 = g.admit(BASE_CFG, Mutation(id="x", patch={"boost": True}, scope="all"))
+        assert d2.verdict == Verdict.COMMIT
+        same_id = [m for m in g.committed if m.id == "x"]
+        assert len(same_id) == 1
+        assert same_id[0].scope_ast == ("all",)
+
+    def test_harm_sign_branch_needs_magnitude(self):
+        """Consistent direction without size is not harm: a near-inert
+        effect can't convict a mutation."""
+        from gateadapt.gate import _harm
+        from gateadapt.stats import PairedResult
+
+        assert not _harm(PairedResult(4, 0, 4, -0.005, 0.001, []))
+        assert _harm(PairedResult(4, 0, 4, -0.02, 0.005, []))
+
     def test_transfer_probe_catches_shortcut(self, world):
         dev, probe, _ = world
         g = gate(dev, probe)

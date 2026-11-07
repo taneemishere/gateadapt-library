@@ -181,6 +181,23 @@ class TestLedgerLifecycle:
         kinds = [e["event"] for e in read_ledger(lp)]
         assert kinds.count("verdict") == 3  # abstain + commit + promoted commit
 
+    def test_revoke_event_shape_matches_returned(self, tmp_path):
+        """The ledger line and the in-memory event are one schema, reason
+        lives at the top level in both."""
+        dev, probe = world()
+        lp = str(tmp_path / "ledger.jsonl")
+        g = Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1,
+                 ledger_path=lp)
+        g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True},
+                                   scope='tags.type == "refusal"'))
+        g.surface.run = scripted_run(contract=(-0.50, lambda t: True))
+        g.advance_epoch(
+            BASE_CFG,
+            probe=make_tasks(48, prefix="probe3", fresh=True, seed=91),
+        )
+        revokes = [e for e in read_ledger(lp) if e["event"] == "revoke"]
+        assert revokes and revokes[0]["reason"] == "drift_harm"
+
 
 class TestDeferredBounded:
     def test_retries_capped(self):

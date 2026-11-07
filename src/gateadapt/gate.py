@@ -50,6 +50,7 @@ from .surface import RunSurface
 
 _EPS = 1e-6
 _REVOKE_EPS = 0.05
+_HARM_FLOOR = 0.01
 _SIGN_TAIL = 0.20
 _CONCENTRATION_FLOOR = 0.10
 _MAX_DEFERRED_RETRIES = 4
@@ -92,9 +93,12 @@ def g0_check(mutation: Mutation, spec: FeatureSpec, dev_ids: set[str]) -> list[s
 
 
 def _harm(measure: PairedResult) -> bool:
-    """Harm rule shared by the transfer probe and re-audit."""
+    """Harm rule shared by the transfer probe and re-audit. The sign branch
+    also demands a mean loss past _HARM_FLOOR, consistent direction alone
+    must not convict a near-inert effect."""
     return measure.diff <= -_REVOKE_EPS or (
-        measure.losses > measure.wins
+        measure.diff <= -_HARM_FLOOR
+        and measure.losses > measure.wins
         and sign_test_p(measure.wins, measure.losses) < _SIGN_TAIL
     )
 
@@ -160,6 +164,12 @@ class Gate:
         self.interactions: list[str] = []
         self.revoked: list[str] = []
         self._epoch = 0
+
+    def _admit_committed(self, mutation: Mutation) -> None:
+        """Append to the committed set, replacing any prior same-id entry.
+        The ledger rebuild dedupes by id, so the live set must too."""
+        self.committed = [c for c in self.committed if c.id != mutation.id]
+        self.committed.append(mutation)
 
     def _pool(self, mutation: Mutation) -> SaffronPool:
         """One SAFFRON pool per mutation family. A family that keeps producing
@@ -326,6 +336,7 @@ class Gate:
                 family=candidate.family,
                 payload=candidate.payload,
                 apply=candidate.apply,
+                partner=candidate.partner,
             )
             probe_ok = True
             probe_p = None
@@ -472,10 +483,7 @@ class Gate:
         if detail:
             ev["detail"] = detail
         if self.ledger_path:
-            append_event(
-                self.ledger_path,
-                {"event": "revoke", "artifact_id": mutation.id, "detail": {"reason": reason, **(detail or {})}},
-            )
+            append_event(self.ledger_path, {**ev})
         return ev
 
     def _overlap(self, x: Mutation, y: Mutation) -> list[Task]:
@@ -573,7 +581,7 @@ class Gate:
                     # valid only while b stays committed
                     m.partner = m.partner or b.id
                     self.promoted_via[m.id] = b.id
-                    self.committed.append(m)
+                    self._admit_committed(m)
                     pair = "+".join(sorted((m.id, b.id)))
                     if pair not in self.interactions:
                         self.interactions.append(pair)
@@ -786,7 +794,7 @@ class Gate:
     # ---- verdict writers ------------------------------------------------------
 
     def _commit(self, mutation: Mutation, detail: dict, rng: random.Random, base_config: dict) -> Decision:
-        self.committed.append(mutation)
+        self._admit_committed(mutation)
         decision = self._record(mutation, Verdict.COMMIT, detail, rng)
         events = self._after_commit(base_config, rng)
         if events:
@@ -795,7 +803,7 @@ class Gate:
 
     def _scope_corrected(self, mutation: Mutation, corrected: dict, detail: dict, rng, base_config: dict) -> Decision:
         narrowed = corrected["narrowed"]
-        self.committed.append(narrowed)
+        self._admit_committed(narrowed)
         detail["narrowed_scope"] = to_jsonable(narrowed.scope_ast)
         detail["heterogeneity"] = {
             "diff_in": corrected["m_in"].diff,

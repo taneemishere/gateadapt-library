@@ -164,9 +164,12 @@ def llm_generate(
             except (json.JSONDecodeError, ValueError):
                 continue
             for i, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue  # malformed model output, skip the row
+                tags = row.get("tags")
                 t = Task(
                     id=str(row.get("id", f"{id_prefix}-{rng.randrange(10**6)}")),
-                    tags=dict(row.get("tags") or {}),
+                    tags=dict(tags) if isinstance(tags, dict) else {},
                     data={
                         k: v
                         for k, v in row.items()

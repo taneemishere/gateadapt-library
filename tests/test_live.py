@@ -251,6 +251,22 @@ class TestLLMGenerate:
         gen(region, 1, __import__("random").Random(0))
         assert captured[0] is region  # predicate itself, no mutation info
 
+    def test_skips_malformed_rows(self):
+        """A non-dict row or non-dict tags must not kill the synthesis loop."""
+
+        class LLM:
+            def chat(self, messages, **o):
+                return json.dumps([
+                    {"id": "ok", "tags": {"type": "answer"}, "question": "q", "gold": "g"},
+                    {"id": "weird", "tags": "not-a-dict", "question": "q"},
+                    "just-a-string",
+                ])
+
+        gen = llm_generate(LLM(), describe="x")
+        out = gen(lambda t: True, 5, __import__("random").Random(0))
+        assert [t.id for t in out] == ["ok", "weird"]
+        assert out[1].tags == {}
+
     def test_bad_json_retries_then_returns_partial(self):
         class LLM:
             calls = 0
