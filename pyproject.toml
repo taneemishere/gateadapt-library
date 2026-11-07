@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gateadapt"
 version = "0.4.0"
-description = "CI for agent changes: measurement-gated admission of harness mutations (COMMIT / REJECT / ABSTAIN)."
+description = "CI for agent changes. Measurement-gated admission of harness mutations (COMMIT / REJECT / ABSTAIN)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

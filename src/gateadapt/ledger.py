@@ -1,4 +1,4 @@
-"""ledger.jsonl: one append-only line per gate event — verdicts, re-audits,
+"""ledger.jsonl: one append-only line per gate event, verdicts, re-audits,
 revocations. The ledger is the public record: every committed artifact
 carries its evidence, and a revoked artifact stays visible (revocation is
 an event, not a deletion).
@@ -31,7 +31,7 @@ def read_ledger(path: str | Path) -> list[dict[str, Any]]:
 
 def committed_from_ledger(path: str | Path) -> list[Mutation]:
     """Rebuild the live committed set: COMMIT/SCOPE_CORRECT artifacts that
-    were never revoked. Only serializable artifacts rebuild — callable
+    were never revoked. Only serializable artifacts rebuild, callable
     scopes/apply can't round-trip a file."""
     committed: dict[str, Mutation] = {}
     order: list[str] = []

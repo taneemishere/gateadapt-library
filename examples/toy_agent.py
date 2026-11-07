@@ -14,10 +14,10 @@ Each task has a base solve prob `p` in its data. Config keys move it:
   conflict.a / conflict.b      +0.30 each alone; together they cannibalize
                                on fresh items (joint = solo - 0.30)
 
-Score is a Bernoulli draw keyed on sha1(task.id | slot) — fully
+Score is a Bernoulli draw keyed on sha1(task.id | slot), fully
 deterministic, zero compute. The uniform is shared across configs at the
 same slot, so paired arms share the random seed and only the mutation's
-effect differs — the honest paired-measurement design.
+effect differs, which is the paired-measurement design.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ def run(task, config: dict) -> float:
 
 def generate(region_fn, n, rng):
     """Item synthesizer for --generate: draws fresh tasks whose tags satisfy
-    the region predicate. A real deployment would call its task forge here —
+    the region predicate. A real deployment would call its task forge here,
     for the demo we mint deterministic synthetic tasks."""
     from gateadapt import Task
 

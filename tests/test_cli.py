@@ -40,7 +40,7 @@ def test_admit_cli_reject_exit_code(capsys):
 
 def test_admit_cli_stacked_base(tmp_path, capsys):
     """The second admit must measure against the committed stack, not the
-    raw config — a duplicate patch has zero marginal on the stack and must
+    raw config, a duplicate patch has zero marginal on the stack and must
     not re-commit. (Live run caught this: base_mean read 0.0 where the
     committed contract should have scored ~0.67.)"""
     ledger = tmp_path / "l.jsonl"

@@ -3,7 +3,7 @@
 A Mutation is a typed harness change (a prompt patch, tool schema, retrieval
 rule, budget rule, output contract, routing rule, memory rule) carrying a
 deterministic scope: either a DSL expression over task tags or a callable.
-No model sits inside the scope — the region a change claims is executable
+No model sits inside the scope, the region a change claims is executable
 and countable.
 """
 
@@ -94,7 +94,7 @@ class Mutation:
     payload: dict[str, Any] = field(default_factory=dict)
     apply: Callable[[dict, Task], dict] | None = None
     #: declared conditional dependency: this artifact's effect only exists
-    #: alongside `partner` — if the partner leaves the committed set, the
+    #: alongside `partner`, if the partner leaves the committed set, the
     #: lifecycle probe revokes this artifact as orphaned.
     partner: str | None = None
 
@@ -198,6 +198,6 @@ class Decision:
 @dataclass(frozen=True)
 class FeatureSpec:
     """Declares the feature vocabulary scopes may reference. G0 rejects a
-    scope mentioning an unknown field — otherwise a scope could encode an
+    scope mentioning an unknown field, otherwise a scope could encode an
     arbitrary lookup and the no-model-in-scope claim is vacuous."""
     fields: dict[str, type]

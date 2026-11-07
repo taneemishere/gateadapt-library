@@ -4,7 +4,7 @@ A mutation's patch is a dict merged into the effective config. Nested dicts
 merge recursively; scalars overwrite. Dotted keys expand to nesting:
 {"retrieval.min_score": 0.35} -> {"retrieval": {"min_score": 0.35}}.
 
-A mutation applies to a task only where its scope fires — scoped application
+A mutation applies to a task only where its scope fires, scoped application
 is the semantics the whole admission algebra stands on.
 """
 
@@ -45,7 +45,7 @@ def apply_patch(config: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]
 
 def apply_mutation(config: dict[str, Any], mutation: Any, task: Any) -> dict[str, Any]:
     """The mutation's contribution to the effective config on this task.
-    Does not check scope — callers gate on fires()."""
+    Does not check scope, callers gate on fires()."""
     cfg = copy.deepcopy(config)
     if mutation.patch:
         cfg = apply_patch(cfg, mutation.patch)

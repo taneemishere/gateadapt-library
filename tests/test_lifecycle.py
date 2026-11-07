@@ -16,7 +16,7 @@ def world(seed=1):
 
 def pair_world():
     """needs_pair.a inert alone · needs_pair.b helps alone · both together
-    help more — the conditional-interaction fixture."""
+    help more, the conditional-interaction fixture."""
     dev, probe = world()
     return Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1)
 
@@ -37,7 +37,7 @@ class TestDeferredPromotion:
         g.admit(BASE_CFG, IX())
         d = g.admit(BASE_CFG, PB())
         assert d.verdict == Verdict.COMMIT
-        # the deferred artifact promoted on the conditional gain —
+        # the deferred artifact promoted on the conditional gain,
         # no SAFFRON look spent, the lifecycle instrument found it
         ids = [m.id for m in g.committed]
         assert ids == ["pb", "ix"]
@@ -57,7 +57,7 @@ class TestDeferredPromotion:
         g = pair_world()
         g.admit(BASE_CFG, IX())
         g.admit(BASE_CFG, PB())
-        # drift: pb's effect inverts on the new probe reserve — and the
+        # drift, where pb's effect inverts on the new probe reserve, and the
         # conditional boost dies with it (it only existed alongside healthy pb)
         g.surface.run = scripted_run(
             pair_b=(-0.40, lambda t: True), pair_ab=(0.0, lambda t: True)
@@ -68,7 +68,7 @@ class TestDeferredPromotion:
         )
         by_id = {d.artifact_id: d.detail["status"] for d in decisions}
         assert by_id["pb"] == "revoked"
-        # ix was conditional on pb — the orphan check removes it too
+        # ix was conditional on pb, the orphan check removes it too
         assert "ix" not in [m.id for m in g.committed]
         assert "ix" in g.revoked
 
@@ -78,7 +78,7 @@ class TestDeferredPromotion:
             run=scripted_run(topk_answer=(0.30, lambda t: t.tags.get("type") == "answer")),
             dev=dev, probe=probe, draws=3, seed=1,
         )
-        # deferred on refusals — inert solo, waiting on a partner
+        # deferred on refusals, inert solo, waiting on a partner
         g.admit(
             BASE_CFG,
             Mutation(id="ix", patch={"needs_pair.a": True},
@@ -108,7 +108,7 @@ class TestInteractionProbe:
         assert d1.verdict == Verdict.COMMIT
         d2 = g.admit(BASE_CFG, Mutation(id="cb", patch={"conflict.b": True}, scope="all"))
         assert d2.verdict == Verdict.COMMIT
-        # joint effect inverts: the pairwise probe revokes both members
+        # joint effect inverts, the pairwise probe revokes both members
         assert g.committed == []
         assert set(g.revoked) == {"ca", "cb"}
         revokes = [e for e in d2.detail["lifecycle"] if e["event"] == "revoke"]
@@ -118,7 +118,7 @@ class TestInteractionProbe:
         g = pair_world()
         g.admit(BASE_CFG, IX())
         g.admit(BASE_CFG, PB())
-        # ix promoted: pair recorded once despite repeated probe passes
+        # ix promoted, pair recorded once despite repeated probe passes
         assert g.interactions.count("ix+pb") == 1
 
 
@@ -143,7 +143,7 @@ class TestDriftEpoch:
         g = Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1)
         g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True},
                                    scope='tags.type == "refusal"'))
-        # the world drifts: contract now hurts refusals
+        # the world drifts, contract now hurts refusals
         g.surface.run = scripted_run(contract=(-0.50, lambda t: t.tags.get("type") == "refusal"))
         decisions = g.advance_epoch(
             BASE_CFG,
@@ -157,7 +157,7 @@ class TestDriftEpoch:
         g = Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1)
         g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True},
                                    scope='tags.type == "refusal"'))
-        # new probe has no refusals: starved is recorded, not revoked
+        # new probe has no refusals, starved is recorded, not revoked
         answers_only = [t for t in probe if t.tags.get("type") == "answer"]
         decisions = g.advance_epoch(BASE_CFG, probe=answers_only)
         assert decisions[0].detail["status"] == "kept_scope_starved"

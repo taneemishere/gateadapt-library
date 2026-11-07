@@ -1,7 +1,7 @@
 """gateadapt CLI: admit / audit / power / replay.
 
 Exit codes for `admit`: 0 COMMIT or SCOPE_CORRECT · 1 REJECT · 0 ABSTAIN
-(abstain is neutral — evidence, not failure).
+(abstain is neutral, evidence, not failure).
 """
 
 from __future__ import annotations
@@ -179,7 +179,7 @@ def cmd_power(args) -> int:
 
 
 def cmd_sequence(args) -> int:
-    """Admit a stream of mutations through ONE persistent gate — the
+    """Admit a stream of mutations through ONE persistent gate, the
     lifecycle story: deferred artifacts wait, promotions and revocations
     happen as later commits change the committed set."""
     cfg = _load_mapping(args.config)
@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("mutation", help="mutation file (.yaml/.json): id, kind, patch, scope")
     p.add_argument("--config", required=True, help="base config (.yaml/.json)")
     p.add_argument("--tasks", required=True, help="dev tasks (.jsonl)")
-    p.add_argument("--probe", help="probe tasks (.jsonl) — pre-commit transfer check")
+    p.add_argument("--probe", help="probe tasks (.jsonl), pre-commit transfer check")
     p.add_argument("--audit", help="frozen audit tasks (.jsonl)")
     p.add_argument("--run", required=True, help="agent: 'file.py:function' or 'module:function'")
     p.add_argument("--reserve", help="consumable reserve tasks (.jsonl) for G2 synthesis rounds")

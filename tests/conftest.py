@@ -55,9 +55,9 @@ def scripted_run(**effect_overrides):
         # lifecycle world: needs_pair.b helps alone; .a only helps with .b
         "pair_b": (0.30, lambda t: True),
         "pair_ab": (0.35, lambda t: True),
-        # conflict world: each flag helps alone; together they cannibalize —
+        # conflict world: each flag helps alone; together they cannibalize,
         # but only on fresh items (joint = solo - 0.30), so dev can't see it
-        # and marginals stay non-harmful: only the pairwise probe catches it
+        # and marginals stay non-harmful. Only the pairwise probe catches it
         "clash_solo": (0.30, lambda t: True),
         "clash_joint": (-0.30, lambda t: bool(t.tags.get("fresh"))),
     }
@@ -94,7 +94,7 @@ def scripted_run(**effect_overrides):
         if cf.get("a") and cf.get("b"):
             p += fx["clash_joint"][0] if fx["clash_joint"][1](task) else 0
         p = min(max(p, 0.02), 0.98)
-        # same task + same slot -> same uniform across configs: paired draws
+        # same task + same slot -> same uniform across configs, paired draws
         # share the random seed, so only the mutation's effect differs.
         h = hashlib.sha1(f"{task.id}|{slot}".encode()).digest()
         return 1.0 if int.from_bytes(h[:4], "big") / 2**32 < p else 0.0

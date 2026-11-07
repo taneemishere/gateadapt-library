@@ -135,7 +135,7 @@ class TestAudit:
         g = Gate(run=run, dev=dev, probe=probe, draws=3, seed=1)
         g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True}, scope='tags.type == "refusal"'))
         assert len(g.committed) == 1
-        # the world shifts: contract now hurts
+        # the world shifts, contract now hurts
         g2 = Gate(
             run=scripted_run(contract=(-0.40, lambda t: t.tags.get("type") == "refusal")),
             dev=dev, probe=probe, draws=3, seed=1,

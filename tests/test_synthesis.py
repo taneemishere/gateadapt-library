@@ -9,7 +9,7 @@ from conftest import BASE_CFG, make_tasks, scripted_run
 
 
 def answers(n, prefix, seed, fresh=False):
-    """Tag-poor world: every task is an answer with no split-worthy fields —
+    """Tag-poor world: every task is an answer with no split-worthy fields,
     nothing for the heterogeneity scan to refine, so synthesis runs on the
     declared scope itself."""
     rng = random.Random(seed)
@@ -70,7 +70,7 @@ class TestSynthesis:
         dev = answers(24, "dev", 11)
         g = gate(list(dev), reserve=answers(320, "res", 53), effect=0.20)
         g.admit(BASE_CFG, LIFT_MUT())
-        # commit at round 2: two rounds of 24 fresh items joined dev
+        # commit at round 2, two rounds of 24 fresh items joined dev
         assert len(g.dev.items) == 24 + 48
 
     def test_reserve_drawn_without_replacement(self):
@@ -148,7 +148,7 @@ class TestSynthesis:
         # an inert family member burns all four looks inconclusively
         d1 = g.admit(BASE_CFG, Mutation(id="i1", patch={"noop": 1}, scope="all", family="f"))
         assert d1.verdict == Verdict.ABSTAIN_WITH_RECORD
-        # the family's pool is drained: the next member cannot afford look 1
+        # the family's pool is drained, the next member cannot afford look 1
         d2 = g.admit(BASE_CFG, Mutation(id="i2", patch={"noop": 2}, scope="all", family="f"))
         assert d2.verdict == Verdict.ABSTAIN_WITH_RECORD
         assert d2.detail["reason"] == "family_budget_exhausted"
@@ -164,7 +164,7 @@ class TestSynthesis:
             Mutation(id="tk1", patch={"retrieval.top_k": 8}, scope="all", family="liftfam"),
         )
         pool = g._pools["liftfam"]
-        # the decided dev look refunded its quarter: full wealth remains
+        # the decided dev look refunded its quarter, full wealth remains
         assert pool.remaining_wealth > 0.09
 
     def test_deterministic_across_runs(self):

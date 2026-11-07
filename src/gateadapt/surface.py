@@ -2,10 +2,10 @@
 draw-indexed, cached episodes.
 
 Every measurement call picks one draw slot idx in [0, draws) and evaluates
-BOTH arms at that slot — the analogue of a shared random seed per item.
+BOTH arms at that slot, the analogue of a shared random seed per item.
 Cache misses call run() exactly once per (task, config, slot) and are
 reused across measurements; beyond `draws` slots the cache serves old
-draws, so repeat measurements are free but stale — matching the honesty
+draws, so repeat measurements are free but stale, matching the honesty
 contract that a slot is one episode.
 """
 

@@ -49,13 +49,13 @@ class TestSaffronPool:
         p.spend(0.0125)
         assert p.allocate() == 0.0125
         p.spend(0.0125)
-        assert p.allocate() == 0.0125  # look 4: full quarter still there
+        assert p.allocate() == 0.0125  # look 4, full quarter still there
         p.spend(0.0125)
         assert p.allocate() == 0.0
 
     def test_decisive_family_keeps_testing(self):
-        # refund on decision: four decided looks cost net zero, and a fifth
-        # look still funds — wealth, not look count, is the gate
+        # refund on decision. Four decided looks cost net zero, and a fifth
+        # look still funds, wealth, not look count, is the gate
         p = SaffronPool(wealth=0.10, looks=4, refund_decided=True)
         for _ in range(4):
             a = p.allocate()

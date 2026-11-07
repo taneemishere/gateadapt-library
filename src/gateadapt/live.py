@@ -1,10 +1,10 @@
 """Live substrate: turn an LLM client into `run(task, config) -> score`.
 
-The gate never sees the wire — it sees the same contract as the toy agent:
+The gate never sees the wire, it sees the same contract as the toy agent:
 a task, an effective config, a score. Mutation patches ARE the harness
-edits: `patch: {"system_prompt": "..."}` or `patch: {"prompt_suffix": "..."}`
-changes the episode the model actually runs, which is the whole point of
-measurement-gated admission on a real agent.
+edits. `patch: {"system_prompt": "..."}` or `patch: {"prompt_suffix": "..."}`
+changes the episode the model actually runs, which is what
+measurement-gated admission on a real agent means in practice.
 
 Per-call config knobs (merged into each request): `system_prompt`,
 `prompt_suffix`, `temperature`, `max_tokens`, `seed`, `model`. A mutation
@@ -47,7 +47,7 @@ def live_run(
 
     `llm` is anything with `.chat(messages, **overrides) -> str` (see
     gateadapt.llm.ChatClient). `scorer(task, response_text)` returns the
-    episode score — supply task semantics (exact match, rubric judge, ...).
+    episode score, supply task semantics (exact match, rubric judge, ...).
     """
 
     def run(task: Task, config: dict) -> float:
@@ -64,7 +64,7 @@ def live_run(
         text = llm.chat(messages, **overrides)
         return float(scorer(task, text))
 
-    # ambient client params are part of the episode's identity — the run
+    # ambient client params are part of the episode's identity, the run
     # name feeds the episode-cache key
     run.__qualname__ = f"live_run[{client_identity(llm)}]"
     return run
@@ -100,7 +100,7 @@ def contains(field: str = "gold") -> Callable[[Task, str], float]:
 
 
 def predicate(fn: Callable[[Task, str], bool]) -> Callable[[Task, str], float]:
-    """Wrap any (task, response) -> bool into a scorer — e.g. refusal checks,
+    """Wrap any (task, response) -> bool into a scorer, e.g. refusal checks,
     format checks, regex suites. You own the semantics; the gate owns the
     measurement."""
     return lambda task, text: float(bool(fn(task, text)))
@@ -111,7 +111,7 @@ def llm_judge(
     rubric: str = "Return CORRECT iff the response answers the task per the gold reference; otherwise INCORRECT.",
 ) -> Callable[[Task, str], float]:
     """A second model call judges each response. Honest but doubles episode
-    cost — cache aggressively (the episode cache already dedupes)."""
+    cost, cache aggressively (the episode cache already dedupes)."""
 
     def scorer(task: Task, text: str) -> float:
         prompt = (
@@ -138,7 +138,7 @@ def llm_generate(
     """A `generate(region_fn, n, rng)` callable backed by the model.
 
     Direction-blind by contract: `describe` is a string or a callable
-    mapping the region predicate to a *region description* — the mutation,
+    mapping the region predicate to a *region description*, the mutation,
     its payload, and its effect sign never reach the prompt. Minted items
     are re-filtered through `region_fn` by the gate regardless.
     """
@@ -173,7 +173,7 @@ def llm_generate(
                         if k not in ("id", "tags")
                     },
                 )
-                # models repeat ids across batches — dedupe so the test pool
+                # models repeat ids across batches, dedupe so the test pool
                 # can't double-count a minted item
                 if region_fn(t) and t.id not in seen:
                     seen.add(t.id)

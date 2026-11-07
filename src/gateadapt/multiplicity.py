@@ -2,12 +2,12 @@
 
 Every gated look spends wealth from a shared per-family pool priced in equal
 quarters (wealth / looks per look). Wealth is the only thing that gates: a
-look runs only while a full quarter remains, a decision — COMMIT or REJECT —
+look runs only while a full quarter remains, a decision, COMMIT or REJECT,
 refunds its spent alpha, and an unresolved look forfeits it. That makes
 indecision costly: a family of decisive members keeps testing (each decided
 look returns its quarter), while a family that churns inconclusively drains
 its budget in four unresolved looks. Total wealth *spent* stays bounded at
-the pool size regardless of test count — the alpha-investing property that
+the pool size regardless of test count, the alpha-investing property that
 keeps sequential peeping honest.
 """
 

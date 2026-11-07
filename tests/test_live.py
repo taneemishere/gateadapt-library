@@ -1,7 +1,7 @@
 """Live substrate: ChatClient wire format + rate limiting (mocked opener),
 live_run contract, scorers, and the llm_generate synthesis callable.
 
-No real network anywhere — every transport is a stub.
+No real network anywhere, every transport is a stub.
 """
 
 import json
@@ -127,7 +127,7 @@ class TestChatClient:
 
 class TestRateLimiter:
     def test_caps_calls_per_minute(self):
-        rl = RateLimiter(max_rpm=60)  # 1/s — measurable without a long wait
+        rl = RateLimiter(max_rpm=60)  # 1/s, measurable without a long wait
         t0 = time.monotonic()
         for _ in range(3):
             rl.wait()
@@ -173,8 +173,8 @@ class TestLiveRun:
         assert seen == {"temperature": 0.7, "max_tokens": 8, "model": "other"}
 
     def test_mutation_patch_changes_episode(self):
-        """The honest core: the same task scores differently under the patch —
-        that's what a Gate measurement on a live agent actually is."""
+        """The core property: the same task scores differently under the patch,
+        which is what a Gate measurement on a live agent actually is."""
         from gateadapt.mutation import apply_patch
 
         class LLM:
@@ -249,7 +249,7 @@ class TestLLMGenerate:
         gen = llm_generate(LLM(), describe=describe)
         region = lambda t: True
         gen(region, 1, __import__("random").Random(0))
-        assert captured[0] is region  # predicate itself — no mutation info
+        assert captured[0] is region  # predicate itself, no mutation info
 
     def test_bad_json_retries_then_returns_partial(self):
         class LLM:

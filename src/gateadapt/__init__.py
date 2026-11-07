@@ -1,11 +1,11 @@
-"""GateAdapt — CI for agent changes.
+"""GateAdapt, CI for agent changes.
 
 User supplies:
   - run(task, config) -> score        (their agent)
   - tasks with tags, split into dev / probe / audit decks
   - a Mutation: id, kind, patch, deterministic scope
 
-Gate answers COMMIT, REJECT, ABSTAIN_WITH_RECORD, or SCOPE_CORRECT —
+Gate answers COMMIT, REJECT, ABSTAIN_WITH_RECORD, or SCOPE_CORRECT,
 each backed by paired evidence on the declared region only.
 """
 

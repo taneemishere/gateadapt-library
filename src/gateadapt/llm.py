@@ -1,13 +1,13 @@
 """LLM providers: stdlib OpenAI-compatible chat clients + a rate limiter.
 
-Kept dependency-free on purpose — the library's live arm plugs any callable
+Kept dependency-free on purpose, the library's live arm plugs any callable
 ``llm.chat(messages) -> str``; these are the reference implementations for
 the hosted catalogs the research used (NVIDIA NIM and any OpenAI-compatible
 endpoint, including local vLLM).
 
-Rate limiting is inside the client, not the caller: a token bucket refills
-``max_rpm`` permits per minute and blocks when empty — the honest way to
-stay under a provider cap without guessing per-request delays.
+Rate limiting lives inside the client rather than the caller. A token
+bucket refills ``max_rpm`` permits per minute and blocks when empty,
+which keeps you under a provider cap without guessing per-request delays.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ NIM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
 class ProviderError(RuntimeError):
     """Wraps a failed HTTP call. `status=None` means a transport failure
-    (URLError/timeout) — no HTTP status was ever received."""
+    (URLError/timeout), no HTTP status was ever received."""
 
     def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)
@@ -36,7 +36,7 @@ class ProviderError(RuntimeError):
 def transient_error(exc: Exception) -> bool:
     """Retryable provider failures: transport errors/timeouts and rate or
     server-side statuses. A permanent 4xx (other than 429) must not cost a
-    retry round — note urllib's HTTPError IS an OSError, so we inspect the
+    retry round, note urllib's HTTPError IS an OSError, so we inspect the
     carried status rather than the exception type."""
     if isinstance(exc, ProviderError):
         return exc.status is None or exc.status == 429 or exc.status >= 500
@@ -57,7 +57,7 @@ def client_identity(client: Any) -> str:
 
     The episode cache keys by (run name, task, config): anything that can
     change an episode's outcome but lives on the *client* rather than in
-    the per-episode config must join the run name — otherwise switching
+    the per-episode config must join the run name, otherwise switching
     model, temperature, or seed silently serves stale episodes. Model is
     always included; temperature/seed/max_tokens join only when set, so
     default-param clients keep their short identity. Accepts a raw client
@@ -137,7 +137,7 @@ class ChatClient:
         if self.max_tokens is not None:
             payload["max_tokens"] = self.max_tokens
         # Per-call overrides (from the mutation's effective config) win over
-        # client defaults — this is how a `patch: {model: ...}` actually
+        # client defaults, this is how a `patch: {model: ...}` actually
         # changes the served endpoint for that episode.
         for k in self._OVERRIDES:
             if k in overrides:
@@ -179,13 +179,13 @@ class ChatClient:
     def chat(self, messages: list[dict[str, Any]], **overrides: Any) -> str:
         """One chat call, rate-limited, retried on transient failures.
         Per-call overrides merge into the payload (model, temperature, seed,
-        max_tokens) — a mutation's `patch` reaches the wire through these."""
+        max_tokens), a mutation's `patch` reaches the wire through these."""
         self.limiter.wait()
         last: Exception | None = None
         for attempt in range(self.retries):
             try:
                 return self._request(messages, **overrides).content
-            except Exception as e:  # noqa: BLE001 — provider/network error
+            except Exception as e:  # noqa: BLE001, provider/network error
                 last = e
                 if not transient_error(e) or attempt == self.retries - 1:
                     raise
@@ -194,7 +194,7 @@ class ChatClient:
 
 
 class NvidiaNIMClient(ChatClient):
-    """NVIDIA NIM hosted catalog — OpenAI-compatible wire format."""
+    """NVIDIA NIM hosted catalog, OpenAI-compatible wire format."""
 
     def __init__(self, api_key: str, model: str = NIM_MODEL, **kwargs: Any) -> None:
         if not api_key:

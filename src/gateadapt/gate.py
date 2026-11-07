@@ -87,7 +87,7 @@ def g0_check(mutation: Mutation, spec: FeatureSpec, dev_ids: set[str]) -> list[s
     if _looks_leaked(mutation.patch or {}, dev_ids):
         violations.append("patch leaks held-out item ids")
     if not mutation.patch and mutation.apply is None:
-        violations.append("mutation has no patch or apply — nothing to admit")
+        violations.append("mutation has no patch or apply, nothing to admit")
     return violations
 
 
@@ -139,7 +139,7 @@ class Gate:
             all_items += self._reserve
         self.spec = spec or infer_spec(all_items)
         self.alpha = alpha
-        # the family budget: each of `looks` looks tests at wealth/looks —
+        # the family budget, where each of `looks` looks tests at wealth/looks,
         # the dev measurement is look 1, synthesis rounds are the rest
         self.wealth = alpha * 2 if wealth is None else wealth
         self.looks = looks
@@ -153,7 +153,7 @@ class Gate:
         self.committed: list[Mutation] = []
         self._pools: dict[str, SaffronPool] = {}
         self._n_decisions = 0
-        # G3 lifecycle state: abstained artifacts wait here for a partner to
+        # G3 lifecycle state. Abstained artifacts wait here for a partner to
         # arrive; promoted ones record the partner they depend on
         self.deferred: list[list] = []  # [Mutation, retries]
         self.promoted_via: dict[str, str] = {}
@@ -162,7 +162,7 @@ class Gate:
         self._epoch = 0
 
     def _pool(self, mutation: Mutation) -> SaffronPool:
-        """One SAFFRON pool per mutation family: a family that keeps producing
+        """One SAFFRON pool per mutation family. A family that keeps producing
         indecisive members drains its own budget, not the gate's."""
         return self._pools.setdefault(
             mutation.family_name,
@@ -228,7 +228,7 @@ class Gate:
 
     def _scope_candidates(self, region: list[Task], scope_ast: Any) -> list[Any]:
         """Single-feature refinements of the declared scope, built from the
-        declared tag vocabulary (tags.* only — data fields are payload, not a
+        declared tag vocabulary (tags.* only, data fields are payload, not a
         scoping contract) at values actually observed in-region: eq for
         str/bool fields, ge/le for numerics."""
         from .scope import _get
@@ -243,7 +243,7 @@ class Gate:
                 for t in region
                 if _get(t.features, field) is not None
             }
-            # sorted for a deterministic candidate order across processes —
+            # sorted for a deterministic candidate order across processes,
             # set iteration order shifts the rng stream otherwise
             for v in sorted(values, key=repr):
                 if ftype in (int, float):
@@ -370,7 +370,7 @@ class Gate:
         generator callable, or the consumable reserve deck (drawn without
         replacement)."""
         if self._generate is not None:
-            # re-filter through the region predicate: the generator sees the
+            # re-filter through the region predicate, since the generator sees the
             # discordant region, but only in-region items may join the pool
             return [t for t in self._generate(region_fn, n, rng) if region_fn(t)]
         if self._reserve is None:
@@ -389,7 +389,7 @@ class Gate:
         pool: SaffronPool,
         rng: random.Random,
     ) -> tuple[Verdict, list[dict[str, Any]]]:
-        """Direction-blind synthesis: only the discordant region is described —
+        """Direction-blind synthesis. Only the discordant region is described,
         never the mutation's payload or sign. Fresh items join the dev deck
         (the only deck that may grow); each round's second half joins a
         cumulative test pool measured at the look's own alpha. A decided look
@@ -438,7 +438,7 @@ class Gate:
         rng: random.Random,
     ) -> ConditionalResult:
         """4-arm paired interaction estimate: x's marginal with partner y vs
-        without, minus y's own marginal. One slot drives all four configs —
+        without, minus y's own marginal. One slot drives all four configs,
         base (committed minus the pair), y alone, x alone, joint."""
         others = [c for c in self.committed if c is not x and c.id != y.id]
 
@@ -461,7 +461,7 @@ class Gate:
         self, mutation: Mutation, reason: str, detail: dict | None = None
     ) -> dict[str, Any]:
         """Remove a committed artifact: bookkeeping + ledger event. Revocation
-        is an event, not a deletion — the artifact stays on the record."""
+        is an event, not a deletion, the artifact stays on the record."""
         self.committed = [c for c in self.committed if c is not mutation]
         self.promoted_via.pop(mutation.id, None)
         if mutation.id not in self.revoked:
@@ -477,7 +477,7 @@ class Gate:
         return ev
 
     def _overlap(self, x: Mutation, y: Mutation) -> list[Task]:
-        """Probe items where both scopes fire — the interaction region."""
+        """Probe items where both scopes fire, the interaction region."""
         if self.probe is None:
             return []
         return [t for t in self.probe.items if x.fires(t) and y.fires(t)]
@@ -487,7 +487,7 @@ class Gate:
     ) -> list[dict[str, Any]]:
         """After every commit: orphan check (a conditional artifact whose
         partner left the set is revoked), then the pairwise interaction probe
-        — joint gains become interaction detections, joint harms revoke the
+       , joint gains become interaction detections, joint harms revoke the
         artifact whose effect inverted. Runs on the fresh probe deck."""
         events: list[dict[str, Any]] = []
         committed_ids = {m.id for m in self.committed}
@@ -511,7 +511,7 @@ class Gate:
                         continue  # already revoked by the other direction
                     res = self._conditional(region, base_config, a, b, rng)
                     # generic evaluators return noisy zero for a non-
-                    # interaction — require a discordant-gain skew so noise
+                    # interaction, require a discordant-gain skew so noise
                     # alone can't fabricate a detection or a conflict
                     decisive = sign_test_p(res.pos, res.neg) < _SIGN_TAIL
                     if res.gain >= self.pairwise_min_gain and decisive:
@@ -537,7 +537,7 @@ class Gate:
     ) -> list[dict[str, Any]]:
         """Each new commit re-opens the deferred queue: an artifact that
         abstained inert now gets measured *conditional on* each committed
-        partner whose region overlaps. A conditional gain promotes it — the
+        partner whose region overlaps. A conditional gain promotes it, the
         lifecycle instrument, costing no SAFFRON look. Retries only count
         when an overlap region was actually probed."""
         events: list[dict[str, Any]] = []
@@ -558,7 +558,7 @@ class Gate:
                     and res.joint_diff > 0
                     and sign_test_p(res.pos, res.neg) < _SIGN_TAIL
                 ):
-                    # promotion is conditional on b: the artifact's commit is
+                    # promotion is conditional on b. The artifact's commit is
                     # valid only while b stays committed
                     m.partner = m.partner or b.id
                     self.promoted_via[m.id] = b.id
@@ -608,7 +608,7 @@ class Gate:
         )
 
     def shift(self, dev: list[Task] | None = None, probe: list[Task] | None = None) -> None:
-        """Epoch boundary: swap in today's decks. Drift is a swap, not growth —
+        """Epoch boundary: swap in today's decks. Drift is a swap, not growth,
         the probe reserve always models the population the gate now serves.
         The cache namespaces by epoch so stale episodes can't be re-served
         for same-id items under a shifted world."""
@@ -626,7 +626,7 @@ class Gate:
         probe: list[Task] | None = None,
     ) -> list[Decision]:
         """Drift epoch: shift the decks, then re-audit every committed
-        mutation on the new probe reserve — measured harm revokes, a starved
+        mutation on the new probe reserve, measured harm revokes, a starved
         region keeps but records."""
         self.shift(dev=dev, probe=probe)
         tasks = self.probe.items if self.probe is not None else None
@@ -644,7 +644,7 @@ class Gate:
         if violations:
             return self._record(mutation, Verdict.REJECT, {"g0_violations": violations}, rng)
 
-        # look 1: the dev measurement, at the look's own alpha (wealth/looks)
+        # look 1 is the dev measurement, at the look's own alpha (wealth/looks)
         alpha1 = pool.allocate()
         if alpha1 <= 0:
             return self._record(
@@ -674,8 +674,8 @@ class Gate:
         significant = m.n >= self.min_n and m.p < alpha1
 
         if significant and m.diff > 0:
-            # heterogeneity guard: if the effect concentrates in a subregion,
-            # the honest verdict is a commit on the narrowed scope.
+            # heterogeneity guard. If the effect concentrates in a subregion,
+            # the correct verdict is a commit on the narrowed scope.
             corrected = self._scope_correct(base_config, self.committed, mutation, alpha1, rng)
             if corrected is not None:
                 pool.refund(alpha1)
@@ -707,7 +707,7 @@ class Gate:
             pool.refund(alpha1)
             return self._record(mutation, Verdict.REJECT, base_detail, rng)
 
-        # inconclusive — scope scan first (rescue a heterogeneous subregion),
+        # inconclusive, scope scan first (rescue a heterogeneous subregion),
         # then direction-blind synthesis if an item source exists.
         scan = self._scope_scan(self.dev.items, base_config, self.committed, mutation, rng)
         corrected = self._accept_correction(scan, base_config, self.committed, mutation, alpha1, rng)
@@ -718,7 +718,7 @@ class Gate:
         resolved = mutation
         if scan["cands"]:
             # a heterogeneous subregion was seen even if it didn't clear the
-            # scan — synthesis steers into it, direction-blind
+            # scan, synthesis steers into it, direction-blind
             narrowed = Mutation(
                 id=mutation.id,
                 kind=mutation.kind,
@@ -766,7 +766,7 @@ class Gate:
             "inconclusive" if m.n >= self.min_n else "region_too_small"
         )
         # a family-exhausted abstain is terminal (the family can't afford
-        # another look); any other abstain waits on the deferred queue —
+        # another look); any other abstain waits on the deferred queue,
         # a later commit may reveal it as a conditional interaction
         if base_detail["reason"] != "family_budget_exhausted":
             self.deferred.append([mutation, 0])
@@ -866,15 +866,15 @@ class Gate:
                 )
             )
         if any(d.detail.get("status") == "revoked" for d in decisions):
-            # a revoked partner can orphan a conditional artifact — rerun
+            # a revoked partner can orphan a conditional artifact, rerun
             # the lifecycle probe so dependents do not linger
             self._lifecycle_probe(base_config, self._rng("post-audit"))
         self.surface.flush()
         return decisions
 
     def audit_report(self, base_config: dict) -> dict[str, Any]:
-        """The honest read: committed set vs unmutated base, on the frozen
-        audit deck. Never touches admission."""
+        """Committed set vs unmutated base, on the frozen audit deck.
+        Never touches admission."""
         if self.audit_deck is None or not self.committed:
             return {"n": 0, "diff": 0.0}
         rng = self._rng("audit-report")

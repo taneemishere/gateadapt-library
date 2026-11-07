@@ -20,7 +20,7 @@ def test_eval_pair_empty():
 
 def test_degenerate_all_wins_is_significant():
     """se=0 must not read p=1: an all-wins run is the most significant
-    outcome, resolved by the exact sign test (caught by the live substrate —
+    outcome, resolved by the exact sign test (caught by the live substrate,
     a +1.0 unanimous effect abstained under the old rule)."""
     items = [Task(id=str(i)) for i in range(7)]
     m = eval_pair(items, lambda it: (0.0, 1.0))

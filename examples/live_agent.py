@@ -1,6 +1,6 @@
 """Live agent: an LLM behind the same `run(task, config) -> score` contract
 as the toy agent. Wire it once, then `gateadapt admit` measures real
-episodes — a mutation's patch (system_prompt / prompt_suffix / temperature /
+episodes, a mutation's patch (system_prompt / prompt_suffix / temperature /
 model) reaches the served model per call.
 
 Key comes from NVIDIA_API_KEY or the GATEADAPT_NVAPI_KEYFILE path
@@ -25,7 +25,7 @@ _DEFAULT_KEYFILE = os.path.expanduser("~/gateadapt/nvapi_key")
 
 
 def build_llm(model: str | None = None) -> NvidiaNIMClient:
-    # temperature=0 keeps episodes deterministic — the eval's default;
+    # temperature=0 keeps episodes deterministic, the eval's default;
     # ambient params are namespaced into the cache key, so overriding via
     # env never silently serves stale episodes
     temperature = float(os.environ.get("GATEADAPT_LLM_TEMPERATURE", "0"))
@@ -63,7 +63,7 @@ def generate(region_fn, n, rng):
 
 
 if __name__ == "__main__":
-    # smoke: one call, prints the raw response — run manually, ~1 request
+    # smoke: one call, prints the raw response, run manually, ~1 request
     import json
     from gateadapt.models import Task
 

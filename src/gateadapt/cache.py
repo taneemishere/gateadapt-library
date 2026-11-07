@@ -1,6 +1,6 @@
 """Episode cache: run() results keyed by (run name, task fingerprint,
 effective-config fingerprint). Each key holds a list of draw scores; the
-draw index is a slot — the same (task, config) pair always returns the same
+draw index is a slot, the same (task, config) pair always returns the same
 score for a slot, which is what makes paired comparisons deterministic on
 cached data.
 """

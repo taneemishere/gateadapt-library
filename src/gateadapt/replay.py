@@ -1,7 +1,7 @@
 """Replay: run an optimizer's shipped history through the gate.
 
 The AutoHarness loop kept or rejected each prompt edit on a 20-task dev set
-by pass@1 + tie-breakers — a threshold rule, not a paired test. This replays
+by pass@1 + tie-breakers, a threshold rule, not a paired test. This replays
 the same panels through the real Gate: every edit becomes a Mutation whose
 patch sets {"round": r}, and the committed-set stacking reproduces "current
 best harness" as the base arm automatically.
@@ -110,7 +110,7 @@ def _dev_rates(panels: dict[str, dict[str, bool]], dev_ids: list[str]) -> dict[s
 
 def format_replay(result: dict[str, Any]) -> str:
     rows = result["rows"]
-    lines = [f"## AutoHarness replay — {result['model']} (dev20, paired same-item)"]
+    lines = [f"## AutoHarness replay, {result['model']} (dev20, paired same-item)"]
     lines.append(f"{'artifact':<12} {'theirs':<10} {'gate':<22} {'diff':>7} {'n':>4}")
     for r in rows:
         tag = f" ({r.caught_by})" if r.caught_by else ""

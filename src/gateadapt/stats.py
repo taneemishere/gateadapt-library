@@ -1,8 +1,8 @@
 """Paired measurement + decision statistics.
 
 The pairing is the point: every in-scope item produces a (base, mutated)
-score pair from the same task, and the diff distribution — not the pass
-rate — is what the z-test consumes. Binary scores additionally give
+score pair from the same task, and the diff distribution, not the pass
+rate, is what the z-test consumes. Binary scores additionally give
 discordant counts (wins/losses) and an exact two-sided sign test used for
 harm heuristics.
 """
@@ -33,7 +33,7 @@ class PairedResult:
     @property
     def p(self) -> float:
         """Two-sided normal p on the paired diff. When the diff distribution
-        is degenerate (se == 0 — every item moved identically, or not at
+        is degenerate (se == 0, every item moved identically, or not at
         all), falls back to the exact sign test on discordant pairs: an
         all-wins run is the *most* significant outcome, not p = 1."""
         if self.diff_se <= 0 or math.isinf(self.diff_se):
@@ -75,8 +75,8 @@ def eval_pair(
 class ConditionalResult:
     """4-arm interaction estimate between artifact x and partner y.
 
-    Per item, one draw slot drives all four arms — base (committed minus the
-    pair), partner alone, x alone, joint — so the only thing that varies is
+    Per item, one draw slot drives all four arms, base (committed minus the
+    pair), partner alone, x alone, joint, so the only thing that varies is
     which configs the draw sees:
 
         gain_i = (joint - x_solo) - (partner - base)

@@ -40,7 +40,7 @@ class TestEvaluate:
         assert not evaluate(("in", "tags.domain", ("other",)), f)
 
     def test_bool_vs_numeric(self):
-        # bool is not numeric: ordered ops must not fire on flags
+        # bool is not numeric, ordered ops must not fire on flags
         f = feats(flag=True)
         assert evaluate(("eq", "tags.flag", True), f)
         assert not evaluate(("ge", "tags.flag", 1), f)

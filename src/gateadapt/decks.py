@@ -1,11 +1,11 @@
 """Decks: the instruments of the honesty invariant.
 
-dev   — evolving; decides admission.
-probe — fresh-item reserve for the pre-COMMIT transfer check.
-audit — frozen at declaration; carries every reported claim.
-test  — held out; the final report only.
+dev  , evolving; decides admission.
+probe, fresh-item reserve for the pre-COMMIT transfer check.
+audit, frozen at declaration; carries every reported claim.
+test , held out; the final report only.
 
-Synthesized/fresh items may grow the dev deck only — the invariant is
+Synthesized/fresh items may grow the dev deck only, the invariant is
 executable, not a convention.
 """
 
@@ -40,7 +40,7 @@ class Deck:
 
 
 def load_tasks(path: str | Path, role: DeckRole | None = None) -> list[Task] | Deck:
-    """Load a JSONL task file. Each line: {"id": ..., "tags": {...}, ...rest}.
+    """Load a JSONL task file. Each line is {"id": ..., "tags": {...}, ...rest}.
 
     'id' (or 'task_id') is required. 'tags' is the scope feature dict;
     remaining top-level fields land in task.data for run() to consume.
