@@ -1,3 +1,5 @@
+import pytest
+
 from gateadapt import Mutation, Task
 from gateadapt.mutation import apply_patch, deep_merge, effective_config, expand_patch
 
@@ -63,3 +65,11 @@ class TestMutation:
         m = Mutation(id="m", patch={"x": 1}, scope=lambda t: True)
         d = m.to_dict()
         assert d["serializable"] is False and d["scope"] is None
+
+    def test_from_dict_requires_id(self):
+        with pytest.raises(ValueError, match="'id'"):
+            Mutation.from_dict({"patch": {"x": 1}})
+
+    def test_from_dict_requires_mapping(self):
+        with pytest.raises(ValueError, match="mapping"):
+            Mutation.from_dict(["not", "a", "dict"])

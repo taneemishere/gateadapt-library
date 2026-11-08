@@ -25,49 +25,56 @@ from __future__ import annotations
 import hashlib
 import json
 
-_CALLS: dict[str, int] = {}
-
-
 def _u(task_id: str, slot: int) -> float:
     h = hashlib.sha1(f"{task_id}|{slot}".encode()).digest()
     return int.from_bytes(h[:4], "big") / 2**32
 
 
-def run(task, config: dict) -> float:
-    cfg_fp = hashlib.sha1(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]
-    key = f"{task.id}|{cfg_fp}"
-    slot = _CALLS.get(key, 0)
-    _CALLS[key] = slot + 1
+def make_run():
+    """A run() with its own episode counter. Each factory instance numbers
+    draws independently, so two Gates in one process can't share slots."""
+    calls: dict[str, int] = {}
 
-    p = float(task.data.get("p", 0.5))
-    t = task.tags
-    if config.get("contract"):
-        p += 0.30 if t.get("type") == "refusal" else 0.0
-    if config.get("always_answer"):
-        p += -0.60 if t.get("type") == "refusal" else 0.0
-    if config.get("retrieval", {}).get("top_k", 4) >= 8:
-        p += 0.10 if t.get("type") == "answer" else 0.0
-    if config.get("prune"):
-        p += 0.55 if t.get("domain") == "acme" else -0.01
-    if config.get("lift"):
-        p += 0.14 if t.get("type") == "answer" else 0.0
-    if config.get("memoize_dev"):
-        p += -0.30 if t.get("fresh") else 0.35
-    np = config.get("needs_pair", {})
-    if np.get("b"):
-        p += 0.30
-    if np.get("a") and np.get("b"):
-        p += 0.35
-    cf = config.get("conflict", {})
-    if cf.get("a"):
-        p += 0.30
-    if cf.get("b"):
-        p += 0.30
-    if cf.get("a") and cf.get("b") and t.get("fresh"):
-        p += -0.30
+    def run(task, config: dict) -> float:
+        cfg_fp = hashlib.sha1(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]
+        key = f"{task.id}|{cfg_fp}"
+        slot = calls.get(key, 0)
+        calls[key] = slot + 1
 
-    p = min(max(p, 0.02), 0.98)
-    return 1.0 if _u(task.id, slot) < p else 0.0
+        p = float(task.data.get("p", 0.5))
+        t = task.tags
+        if config.get("contract"):
+            p += 0.30 if t.get("type") == "refusal" else 0.0
+        if config.get("always_answer"):
+            p += -0.60 if t.get("type") == "refusal" else 0.0
+        if config.get("retrieval", {}).get("top_k", 4) >= 8:
+            p += 0.10 if t.get("type") == "answer" else 0.0
+        if config.get("prune"):
+            p += 0.55 if t.get("domain") == "acme" else -0.01
+        if config.get("lift"):
+            p += 0.14 if t.get("type") == "answer" else 0.0
+        if config.get("memoize_dev"):
+            p += -0.30 if t.get("fresh") else 0.35
+        np = config.get("needs_pair", {})
+        if np.get("b"):
+            p += 0.30
+        if np.get("a") and np.get("b"):
+            p += 0.35
+        cf = config.get("conflict", {})
+        if cf.get("a"):
+            p += 0.30
+        if cf.get("b"):
+            p += 0.30
+        if cf.get("a") and cf.get("b") and t.get("fresh"):
+            p += -0.30
+
+        p = min(max(p, 0.02), 0.98)
+        return 1.0 if _u(task.id, slot) < p else 0.0
+
+    return run
+
+
+run = make_run()
 
 
 def generate(region_fn, n, rng):

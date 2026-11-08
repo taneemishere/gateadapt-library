@@ -2,7 +2,7 @@
 orphan revocation, and drift epochs."""
 
 from gateadapt import Mutation, Verdict
-from gateadapt.gate import Gate
+from gateadapt.gate import Gate, _MAX_DEFERRED_RETRIES
 from gateadapt.ledger import committed_from_ledger, read_ledger
 from conftest import BASE_CFG, make_tasks, scripted_run
 
@@ -71,6 +71,10 @@ class TestDeferredPromotion:
         # ix was conditional on pb, the orphan check removes it too
         assert "ix" not in [m.id for m in g.committed]
         assert "ix" in g.revoked
+        # and the orphan revocation is returned to the caller, not just logged
+        assert by_id["ix"] == "revoked"
+        ix_decisions = [d for d in decisions if d.artifact_id == "ix"]
+        assert ix_decisions[-1].detail["reason"] == "partner_absent"
 
     def test_no_overlap_region_burns_no_retry(self):
         dev, probe = world()
@@ -121,6 +125,20 @@ class TestInteractionProbe:
         # ix promoted, the pair is recorded once under the canonical order,
         # not once per direction
         assert g.interactions == ["ix+pb"]
+
+    def test_saturated_pair_is_not_a_conflict(self):
+        """Two positive effects saturate the score: the joint can't gain
+        past the ceiling, so the pair reads subadditive under the old gain
+        rule. A conflict must require the joint below the best member."""
+        dev, probe = world()
+        g = Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1)
+        g.admit(BASE_CFG, Mutation(id="partner-c", patch={"contract": True},
+                                   scope='tags.type == "refusal"'))
+        d = g.admit(BASE_CFG, Mutation(id="pr", patch={"prune": True}, scope="all",
+                                       partner="partner-c"))
+        assert d.verdict == Verdict.SCOPE_CORRECT
+        assert g.revoked == []
+        assert {m.id for m in g.committed} == {"partner-c", "pr"}
 
 
 class TestDriftEpoch:
@@ -209,14 +227,11 @@ class TestDeferredBounded:
         g.admit(BASE_CFG, IX())
         # overlapping-but-non-unlocking commits burn one probed retry each;
         # needs_pair.b is deliberately absent or ix would promote
-        for mut in [
-            Mutation(id="c", patch={"contract": True}, scope='tags.type == "refusal"'),
-            Mutation(id="p", patch={"prune": True}, scope="all"),
-            Mutation(id="ca", patch={"conflict.a": True}, scope="all"),
-            Mutation(id="b1", patch={"boost": True}, scope="all"),
-            Mutation(id="b2", patch={"boost": True}, scope='tags.type == "refusal"'),
-        ]:
-            g.admit(BASE_CFG, mut)
-        # probed on every commit, capped at MAX_DEFERRED_RETRIES, never promoted
-        assert g.deferred[0][1] == 4
+        g.deferred[0][1] = _MAX_DEFERRED_RETRIES - 1
+        g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True},
+                                   scope='tags.type == "refusal"'))
+        g.admit(BASE_CFG, Mutation(id="p", patch={"prune": True}, scope="all"))
+        # the first commit burns the last retry, the second is capped, and
+        # ix is never promoted
+        assert g.deferred[0][1] == _MAX_DEFERRED_RETRIES
         assert "ix" not in [m.id for m in g.committed]

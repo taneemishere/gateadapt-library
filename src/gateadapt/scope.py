@@ -188,6 +188,8 @@ class _Parser:
         return self.toks[self.i] if self.i < len(self.toks) else None
 
     def next(self) -> str:
+        if self.i >= len(self.toks):
+            raise ValueError("unexpected end of scope")
         tok = self.toks[self.i]
         self.i += 1
         return tok

@@ -41,6 +41,17 @@ def test_leaked_ids_rejected():
     assert any("leaks" in v for v in check(m2))
 
 
+def test_leak_check_ignores_substrings():
+    # an id buried inside other words or suffixed is a different token, not
+    # a leak
+    m = Mutation(id="m", patch={"a": 1}, scope="all",
+                 payload={"hint": "ad-003 is not the task id"})
+    assert not any("leaks" in v for v in check(m))
+    m2 = Mutation(id="m", patch={"a": 1}, scope="all",
+                  payload={"hint": "d-003x is a different id"})
+    assert not any("leaks" in v for v in check(m2))
+
+
 def test_empty_mutation_rejected():
     m = Mutation(id="m", scope="all")
     assert any("nothing to admit" in v for v in check(m))

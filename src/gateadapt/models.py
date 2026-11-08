@@ -149,6 +149,8 @@ class Mutation:
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "Mutation":
+        if not isinstance(d, dict) or not d.get("id"):
+            raise ValueError("mutation must be a mapping with an 'id' field")
         scope = d.get("scope", "all")
         if isinstance(scope, list):
             from .scope import from_jsonable

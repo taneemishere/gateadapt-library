@@ -237,6 +237,17 @@ class TestLedger:
         g2.audit(BASE_CFG)
         assert committed_from_ledger(lp) == []
 
+    def test_gate_loads_committed_from_ledger(self, world, tmp_path):
+        """A ledger path is load-bearing: the gate rebuilds the committed
+        set itself, stacked admission does not depend on the caller."""
+        dev, probe, _ = world
+        lp = str(tmp_path / "ledger.jsonl")
+        g = gate(dev, probe, ledger=lp)
+        g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True},
+                                   scope='tags.type == "refusal"'))
+        g2 = gate(dev, probe, ledger=lp)
+        assert [m.id for m in g2.committed] == ["c"]
+
     def test_same_id_reject_keeps_committed_rebuild(self, world, tmp_path):
         """A later reject of a re-submitted id judges the candidate, not the
         committed set. Rebuild must match what the live gate kept."""

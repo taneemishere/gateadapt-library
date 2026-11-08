@@ -46,8 +46,8 @@ def eval_pair(
     items: list[Any],
     outcome: Callable[[Any, Any], tuple[float, float]],
 ) -> PairedResult:
-    """Pair base vs mutated on the same items. `outcome(item, rng_slot)` returns
-    (base_score, mutated_score) for the caller-chosen pairing slot."""
+    """Pair base vs mutated on the same items. `outcome(item)` returns
+    (base_score, mutated_score); the caller chooses the shared draw slot."""
     rows = []
     wins = losses = 0
     for it in items:
@@ -83,7 +83,14 @@ class ConditionalResult:
 
     The partner's own marginal is subtracted: without that term a strong
     partner would read as interaction. `solo_diff`/`joint_diff` are x's
-    marginal without / with the partner (both vs the pair-free baseline)."""
+    marginal without / with the partner (both vs the pair-free baseline).
+
+    `expected` is the naive additive expectation base + x_marginal +
+    y_marginal, `joint_mean` the realized joint. `shortfall` is the gap
+    between the joint and the expectation the score ceiling permits. A
+    saturated pair lands on the cap and shows ~0; real cancellation stays
+    below it. Mere subadditivity, which every bounded score shows once
+    arms saturate, is not itself a conflict."""
     n: int
     solo_diff: float
     joint_diff: float
@@ -91,6 +98,12 @@ class ConditionalResult:
     gain_se: float
     pos: int = 0
     neg: int = 0
+    joint_mean: float = 0.0
+    expected: float = 0.0
+
+    @property
+    def shortfall(self) -> float:
+        return min(1.0, self.expected) - self.joint_mean
 
 
 def eval_conditional(
@@ -102,6 +115,7 @@ def eval_conditional(
     gains = []
     pos = neg = 0
     solo_sum = joint_sum = 0.0
+    partner_sum = joint_raw = 0.0
     for it in items:
         b, partner, solo, joint = quad(it)
         g = (joint - solo) - (partner - b)
@@ -112,6 +126,8 @@ def eval_conditional(
             neg += 1
         solo_sum += solo - b
         joint_sum += joint - b
+        partner_sum += partner
+        joint_raw += joint
     n = len(gains)
     if n == 0:
         return ConditionalResult(0, 0.0, 0.0, 0.0, math.inf)
@@ -120,7 +136,10 @@ def eval_conditional(
     if n > 1:
         var = sum((g - mean) ** 2 for g in gains) / (n - 1)
         se = math.sqrt(var / n)
-    return ConditionalResult(n, solo_sum / n, joint_sum / n, mean, se, pos, neg)
+    return ConditionalResult(
+        n, solo_sum / n, joint_sum / n, mean, se, pos, neg,
+        joint_raw / n, (solo_sum + partner_sum) / n,
+    )
 
 
 def sign_test_p(wins: int, losses: int) -> float:

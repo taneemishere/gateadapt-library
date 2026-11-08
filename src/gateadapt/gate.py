@@ -20,11 +20,12 @@ Pipeline (G0 + G1):
 from __future__ import annotations
 
 import random
+import re
 from typing import Any, Callable
 
 from .cache import EpisodeCache
 from .decks import Deck, DeckRole
-from .ledger import append_event
+from .ledger import append_event, committed_from_ledger
 from .models import (
     ArtifactKind,
     Decision,
@@ -57,9 +58,13 @@ _MAX_DEFERRED_RETRIES = 4
 
 
 def _looks_leaked(value: Any, ids: set[str]) -> bool:
-    """Recursive substring hunt: does this payload mention any dev item id?"""
+    """Recursive token hunt: does this payload mention any dev item id?
+    Boundary-matched, an id like 'a' must not reject every payload."""
     if isinstance(value, str):
-        return any(i in value for i in ids)
+        return any(
+            re.search(rf"(?<![\w-]){re.escape(i)}(?![\w-])", value) is not None
+            for i in ids
+        )
     if isinstance(value, dict):
         return any(_looks_leaked(v, ids) for v in value.values())
     if isinstance(value, (list, tuple)):
@@ -119,6 +124,7 @@ class Gate:
         items_per_round: int = 24,
         refund_decided: bool = True,
         pairwise_min_gain: float = 0.05,
+        conflict_min: float = 0.15,
         min_n: int = 8,
         seed: int = 0,
         cache_path: str | None = None,
@@ -150,11 +156,17 @@ class Gate:
         self.items_per_round = items_per_round
         self.refund_decided = refund_decided
         self.pairwise_min_gain = pairwise_min_gain
+        # revocation is destructive, it needs a bigger bar than detection
+        self.conflict_min = conflict_min
         self.min_n = min_n
         self.seed = seed
         self.ledger_path = ledger_path
         self.surface = RunSurface(run, draws=draws, name=name, cache=EpisodeCache(cache_path))
-        self.committed: list[Mutation] = []
+        # a ledger path is load-bearing: the committed set rebuilds from it,
+        # so stacked admission works across processes, not just CLI sessions
+        self.committed: list[Mutation] = (
+            committed_from_ledger(ledger_path) if ledger_path else []
+        )
         self._pools: dict[str, SaffronPool] = {}
         self._n_decisions = 0
         # G3 lifecycle state. Abstained artifacts wait here for a partner to
@@ -537,15 +549,23 @@ class Gate:
                             if self.ledger_path:
                                 append_event(self.ledger_path, {**ev})
                         break  # a decisive direction settles the pair
-                    if res.gain <= -self.pairwise_min_gain:
-                        # a conflict is symmetric, both members of the pair leave
+                    # a conflict means the joint scores below what the
+                    # score ceiling lets the additive pair reach: real
+                    # cancellation. A saturated pair lands on the cap
+                    # and must not convict, every bounded score reads
+                    # subadditive there
+                    if res.shortfall >= self.conflict_min:
                         for m, other in ((a, b), (b, a)):
                             if m.id in {mm.id for mm in self.committed}:
                                 events.append(
                                     self._revoke(
                                         m,
                                         "interaction_conflict",
-                                        {"partner": other.id, "gain": res.gain},
+                                        {
+                                            "partner": other.id,
+                                            "gain": res.gain,
+                                            "shortfall": res.shortfall,
+                                        },
                                     )
                                 )
                         break
@@ -886,8 +906,22 @@ class Gate:
             )
         if any(d.detail.get("status") == "revoked" for d in decisions):
             # a revoked partner can orphan a conditional artifact, rerun
-            # the lifecycle probe so dependents do not linger
-            self._lifecycle_probe(base_config, self._rng("post-audit"))
+            # the lifecycle probe so dependents do not linger, and return
+            # those revocations too, the caller owns the same picture the
+            # ledger gets
+            for ev in self._lifecycle_probe(base_config, self._rng("post-audit")):
+                if ev["event"] == "revoke":
+                    decisions.append(
+                        Decision(
+                            artifact_id=ev["artifact_id"],
+                            verdict=Verdict.REJECT,
+                            detail={
+                                "status": "revoked",
+                                "reason": ev["reason"],
+                                **(ev.get("detail") or {}),
+                            },
+                        )
+                    )
         self.surface.flush()
         return decisions
 

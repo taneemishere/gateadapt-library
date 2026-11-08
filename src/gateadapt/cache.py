@@ -31,10 +31,6 @@ class EpisodeCache:
     def key(self, run_name: str, task_fp: str, config: dict) -> str:
         return f"{run_name}|{task_fp}|{_fp(config)}"
 
-    def get(self, key: str, idx: int) -> float | None:
-        draws = self._data.get(key, [])
-        return draws[idx] if idx < len(draws) else None
-
     def append(self, key: str, score: float) -> int:
         draws = self._data.setdefault(key, [])
         draws.append(float(score))

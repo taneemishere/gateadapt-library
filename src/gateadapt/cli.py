@@ -16,7 +16,7 @@ from typing import Any
 
 from .decks import load_tasks
 from .gate import Gate
-from .ledger import committed_from_ledger, read_ledger
+from .ledger import read_ledger
 from .models import Mutation, Verdict
 from .replay import format_replay, replay
 from .stats import tasks_needed
@@ -101,7 +101,7 @@ def _print_verdict(d) -> None:
                     f"  synthesis round {r['k']}: drew {r['items_drawn']} fresh · "
                     f"test pool {r['test_n']} · diff {r['diff']:+.3f} (p {r['p']:.4f} @ α {r['alpha']:.3f}) · {r['verdict']}"
                 )
-    if "needed" in det:
+    if det.get("needed", {}).get("need"):
         n = det["needed"]
         print(f"  underpowered: have {n['have']} in-scope · need ~{n['need']} more (at ±{n['at_effect']:.2f})")
     if "g0_violations" in det:
@@ -127,8 +127,6 @@ def cmd_admit(args) -> int:
     cfg = _load_mapping(args.config)
     mut = Mutation.from_dict(_load_mapping(args.mutation))
     gate = _build_gate(args)
-    if args.ledger:
-        gate.committed = committed_from_ledger(args.ledger)
     d = gate.admit(cfg, mut)
     _print_verdict(d)
     return 0 if d.verdict in (Verdict.COMMIT, Verdict.SCOPE_CORRECT, Verdict.ABSTAIN_WITH_RECORD) else 1
@@ -137,8 +135,7 @@ def cmd_admit(args) -> int:
 def cmd_audit(args) -> int:
     cfg = _load_mapping(args.config)
     gate = _build_gate(args)
-    committed = committed_from_ledger(args.ledger) if args.ledger else []
-    gate.committed = committed
+    committed = gate.committed
     if not committed:
         print("nothing committed (ledger empty or missing)")
         return 0
@@ -184,8 +181,6 @@ def cmd_sequence(args) -> int:
     happen as later commits change the committed set."""
     cfg = _load_mapping(args.config)
     gate = _build_gate(args)
-    if args.ledger:
-        gate.committed = committed_from_ledger(args.ledger)
     paths = sorted(Path(p) for p in args.mutations)
     exit_code = 0
     for path in paths:

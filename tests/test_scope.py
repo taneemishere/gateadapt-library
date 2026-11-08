@@ -115,7 +115,7 @@ class TestDSL:
 
     def test_parse_errors(self):
         for bad in ["", "tags.type", "tags.type ==", "and()", "and(x)" "]", 'type == "a",']:
-            with pytest.raises(Exception):
+            with pytest.raises(ValueError):
                 parse(bad)
 
     def test_dumps_deterministic(self):
