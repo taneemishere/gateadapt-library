@@ -42,7 +42,8 @@ their partner arrives, and drift audits revoke what stopped working.
 ## Install
 
 ```bash
-pip install -e ".[dev]"
+pip install gateadapt            # use it
+pip install -e ".[dev]"          # hack on it (editable + pytest)
 ```
 
 ## 5-minute quickstart
@@ -278,8 +279,7 @@ jobs:
           key: gateadapt-${{ github.sha }}
           restore-keys: gateadapt-
 
-      - run: pip install "git+https://github.com/taneemishere/gateadapt-library"
-        # after the PyPI release this becomes: pip install gateadapt
+      - run: pip install gateadapt
 
       - name: Measure the harness change
         env:
