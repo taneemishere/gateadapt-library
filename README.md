@@ -246,6 +246,7 @@ zero compute).
 gateadapt replay --model both
 gateadapt power --effect 0.10          # how many in-scope tasks a verdict needs
 gateadapt power --effect 0.10 --tasks examples/tasks_dev.jsonl --scope 'tags.type == "answer"'
+gateadapt status --ledger ledger.jsonl # lifecycle state of every artifact in the log
 ```
 
 ## In your CI
@@ -356,11 +357,28 @@ gate.audit(config)
 
 # committed set vs base, on the frozen audit deck
 gate.audit_report(config)
+
+# where an artifact sits in the lifecycle, one query instead of
+# membership checks across the gate's collections
+gate.artifact_state("prune-weak-hits")
+# {"state": LifecycleState.COMMITTED}
+gate.artifact_state("deferred-thing")
+# {"state": LifecycleState.DEFERRED, "retries": 1, "max_retries": 4}
+gate.artifact_states()   # every known artifact, same shape
 ```
 
 Subsequent `admit` calls measure each candidate **stacked on the
 committed harness**. The base arm is the current admitted state, so a
 second commit must beat the first, not the unmutated origin.
+
+`gateadapt status --ledger ledger.jsonl` prints the same lifecycle map
+from the command line (`--json` for machines): every artifact the ledger
+knows, its state, and the details (partner for conditional commits,
+retry count for deferred). States are `committed`, `conditional`,
+`deferred`, `expired`, `revoked`, `rejected`, `unknown` — live
+membership wins over history, so a revoked-then-recommitted artifact
+reads `committed`, and every `Decision.detail["state_after"]` carries
+the post-verdict state.
 
 ## Inputs
 
@@ -443,7 +461,10 @@ tags.difficulty in ["easy", "medium"]
 - **Episode cache.** `run` results keyed by (run-name, task, config); the
   paired slot design makes repeat measurements free and deterministic.
 - **ledger.jsonl.** Append-only verdict/revoke log; `committed_from_ledger`
-  rebuilds the live committed set.
+  rebuilds the live committed set and `lifecycle_from_ledger` the rest of
+  the lifecycle (deferred queue, promoted partners, interactions,
+  revocations, rejections), so `gate.artifact_state` and
+  `gateadapt status` answer across processes.
 - **Live substrate.** `gateadapt.live.live_run` adapts any chat client to
   the `run(task, config)` contract. `gateadapt.llm.ChatClient` is a stdlib
   OpenAI-compatible client with token-bucket rate limiting (hard-capped

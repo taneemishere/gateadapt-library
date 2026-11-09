@@ -74,3 +74,51 @@ def pools_from_ledger(path: str | Path) -> dict[str, dict[str, Any]]:
         else:
             st["spent"] = max(0.0, st["spent"] - float(ev["alpha"]))
     return pools
+
+
+def lifecycle_from_ledger(path: str | Path) -> dict[str, Any]:
+    """Rebuild the G3 lifecycle sets the way committed_from_ledger rebuilds
+    the committed set: promoted partners, recorded interactions, revocations,
+    rejected ids, and artifacts still deferred awaiting a partner. Retry
+    counters are not persisted; a rebuilt deferred artifact restarts at 0."""
+    out: dict[str, Any] = {
+        "revoked": [],
+        "promoted_via": {},
+        "interactions": [],
+        "rejected": set(),
+        "deferred": [],
+    }
+    deferred: dict[str, list] = {}
+    for ev in read_ledger(path):
+        kind = ev.get("event")
+        if kind == "verdict":
+            art = ev.get("artifact") or {}
+            aid = art.get("id", "")
+            det = ev.get("detail") or {}
+            verdict = ev.get("verdict")
+            if verdict in ("commit", "scope_correct"):
+                deferred.pop(aid, None)
+                if det.get("via_deferred") and det.get("partner"):
+                    out["promoted_via"][aid] = det["partner"]
+            elif verdict == "reject":
+                if aid:
+                    out["rejected"].add(aid)
+                deferred.pop(aid, None)
+            elif verdict == "abstain_with_record":
+                if (
+                    aid
+                    and art.get("serializable", True)
+                    and det.get("reason") != "family_budget_exhausted"
+                ):
+                    deferred[aid] = [Mutation.from_dict(art), 0]
+        elif kind == "revoke":
+            aid = ev.get("artifact_id", "")
+            if aid not in out["revoked"]:
+                out["revoked"].append(aid)
+            deferred.pop(aid, None)
+        elif kind == "interaction":
+            pair = ev.get("pair")
+            if pair and pair not in out["interactions"]:
+                out["interactions"].append(pair)
+    out["deferred"] = list(deferred.values())
+    return out

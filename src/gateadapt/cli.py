@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .decks import load_tasks
+from .decks import Deck, DeckRole, load_tasks
 from .gate import Gate
 from .ledger import read_ledger
 from .models import Mutation, Verdict
@@ -203,6 +203,28 @@ def cmd_replay(args) -> int:
     return 0
 
 
+def cmd_status(args) -> int:
+    """Rebuild lifecycle state from the ledger and report it per artifact."""
+    gate = Gate(
+        run=lambda t, c: 0.0,
+        dev=Deck(role=DeckRole.DEV, items=[]),
+        ledger_path=args.ledger,
+    )
+    states = gate.artifact_states()
+    if args.json:
+        print(json.dumps(states, sort_keys=True))
+        return 0
+    if not states:
+        print("ledger has no artifacts")
+        return 0
+    width = max(len(a) for a in states)
+    for aid, st in sorted(states.items()):
+        extra = {k: v for k, v in st.items() if k != "state"}
+        tail = "  " + " ".join(f"{k}={v}" for k, v in extra.items()) if extra else ""
+        print(f"{aid:<{width}}  {st['state'].value}{tail}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="gateadapt", description="CI for agent changes")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -278,6 +300,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--autoharness", help="path to a local AutoHarness clone (default: bundled)")
     p.add_argument("--min-n", type=int, default=8)
     p.set_defaults(fn=cmd_replay)
+
+    p = sub.add_parser(
+        "status", help="lifecycle state of every artifact in a ledger"
+    )
+    p.add_argument("--ledger", required=True, help="ledger to read (.jsonl)")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.set_defaults(fn=cmd_status)
 
     args = ap.parse_args(argv)
     return args.fn(args)

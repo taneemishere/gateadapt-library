@@ -41,6 +41,20 @@ class Verdict(str, Enum):
     SCOPE_CORRECT = "scope_correct"
 
 
+class LifecycleState(str, Enum):
+    """Where an artifact sits in the gate's lifecycle. The gate tracks this
+    implicitly (which collection holds the mutation); `Gate.artifact_state`
+    derives it explicitly for one id."""
+
+    COMMITTED = "committed"      # admitted, in the committed set
+    CONDITIONAL = "conditional"  # committed, valid only while its partner stays
+    DEFERRED = "deferred"        # abstained, awaiting conditional evidence
+    EXPIRED = "expired"          # deferred with the retry budget spent
+    REVOKED = "revoked"          # was committed, removed by lifecycle/audit
+    REJECTED = "rejected"        # decisive negative verdict this session
+    UNKNOWN = "unknown"          # never proposed to this gate
+
+
 class DeckRole(str, Enum):
     DEV = "dev"        # decides admission
     PROBE = "probe"    # fresh-item reserve for the pre-COMMIT transfer check

@@ -25,11 +25,17 @@ from typing import Any, Callable
 
 from .cache import EpisodeCache
 from .decks import Deck, DeckRole
-from .ledger import append_event, committed_from_ledger, pools_from_ledger
+from .ledger import (
+    append_event,
+    committed_from_ledger,
+    lifecycle_from_ledger,
+    pools_from_ledger,
+)
 from .models import (
     ArtifactKind,
     Decision,
     FeatureSpec,
+    LifecycleState,
     Mutation,
     STATELESS_KINDS,
     Task,
@@ -183,6 +189,16 @@ class Gate:
         self.promoted_via: dict[str, str] = {}
         self.interactions: list[str] = []
         self.revoked: list[str] = []
+        self._rejected: set[str] = set()
+        if ledger_path:
+            # lifecycle sets rebuild from the ledger too, so a new process
+            # sees the same artifact states the last one left behind
+            lc = lifecycle_from_ledger(ledger_path)
+            self.deferred = lc["deferred"]
+            self.promoted_via = lc["promoted_via"]
+            self.interactions = lc["interactions"]
+            self.revoked = lc["revoked"]
+            self._rejected = lc["rejected"]
         self._epoch = 0
 
     def _admit_committed(self, mutation: Mutation) -> None:
@@ -190,6 +206,41 @@ class Gate:
         The ledger rebuild dedupes by id, so the live set must too."""
         self.committed = [c for c in self.committed if c.id != mutation.id]
         self.committed.append(mutation)
+
+    def artifact_state(self, artifact_id: str) -> dict[str, Any]:
+        """Current lifecycle state of an artifact, derived from the
+        collections that hold it: live membership (committed, deferred)
+        wins over history (revoked, rejected are records, not removal)."""
+        in_set = next((m for m in self.committed if m.id == artifact_id), None)
+        if in_set is not None:
+            partner = in_set.partner or self.promoted_via.get(artifact_id)
+            if partner:
+                return {"state": LifecycleState.CONDITIONAL, "partner": partner}
+            return {"state": LifecycleState.COMMITTED}
+        for m, retries in self.deferred:
+            if m.id == artifact_id:
+                if retries >= _MAX_DEFERRED_RETRIES:
+                    return {"state": LifecycleState.EXPIRED, "retries": retries}
+                return {
+                    "state": LifecycleState.DEFERRED,
+                    "retries": retries,
+                    "max_retries": _MAX_DEFERRED_RETRIES,
+                }
+        if artifact_id in self.revoked:
+            return {"state": LifecycleState.REVOKED}
+        if artifact_id in self._rejected:
+            return {"state": LifecycleState.REJECTED}
+        return {"state": LifecycleState.UNKNOWN}
+
+    def artifact_states(self) -> dict[str, dict[str, Any]]:
+        """Lifecycle state for every artifact this gate knows about."""
+        ids = (
+            {m.id for m in self.committed}
+            | {m.id for m, _ in self.deferred}
+            | set(self.revoked)
+            | self._rejected
+        )
+        return {aid: self.artifact_state(aid) for aid in ids}
 
     def _new_pool(self) -> AlphaPool:
         # without an item source only the dev look can ever run, so it
@@ -643,6 +694,7 @@ class Gate:
                         "gain": res.gain,
                         "joint_diff": res.joint_diff,
                         "region_n": res.n,
+                        "state_after": LifecycleState.CONDITIONAL.value,
                     }
                     if self.ledger_path:
                         append_event(
@@ -888,6 +940,11 @@ class Gate:
         rng: random.Random,
         original: Mutation | None = None,
     ) -> Decision:
+        if verdict == Verdict.REJECT:
+            self._rejected.add(mutation.id)
+        # membership changes happen before _record on every path, so the
+        # derived lifecycle state is already post-decision here
+        detail["state_after"] = self.artifact_state(mutation.id)["state"].value
         decision = Decision(artifact_id=mutation.id, verdict=verdict, detail=detail)
         self.surface.flush()
         if self.ledger_path:
@@ -930,6 +987,7 @@ class Gate:
                 detail["status"] = "revoked"
             else:
                 detail["status"] = "kept"
+            detail["state_after"] = self.artifact_state(m.id)["state"].value
             if self.ledger_path:
                 append_event(
                     self.ledger_path,
