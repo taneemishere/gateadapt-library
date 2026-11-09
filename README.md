@@ -29,6 +29,16 @@ pass-rate diffs are noisy (in the AutoHarness dev20 panel, 6 of 20 tasks
 flipped on an *unchanged* harness), and certifying noise is worse than
 admitting nothing.
 
+**How it works.** The gate is a staged pipeline. G0 validates the
+mutation and its scope before a single episode runs. G1 makes a paired
+measurement on the declared region only, same task and same draw slot on
+both arms, then a transfer probe on fresh items catches dev-only gains.
+When the dev look can't decide, G2 spends a per-family alpha budget on
+direction-blind fresh items until the cumulative pool resolves. After
+every commit, G3 re-measures the committed set. Pairwise probes catch
+mutations that cancel each other, deferred artifacts get promoted when
+their partner arrives, and drift audits revoke what stopped working.
+
 ## Install
 
 ```bash
