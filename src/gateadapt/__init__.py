@@ -13,7 +13,7 @@ from .decks import Deck, HonestyViolation, dump_tasks, load_tasks
 from .gate import Gate, g0_check
 from .ledger import committed_from_ledger, read_ledger
 from .live import contains, exact_match, live_run, llm_generate, llm_judge, predicate
-from .multiplicity import SaffronPool
+from .multiplicity import AlphaPool, SaffronPool
 from .models import (
     ArtifactKind,
     Decision,
@@ -41,6 +41,7 @@ __all__ = [
     "HonestyViolation",
     "PairedResult",
     "ConditionalResult",
+    "AlphaPool",
     "SaffronPool",
     "load_tasks",
     "dump_tasks",

@@ -45,7 +45,12 @@ class RunSurface:
         scores = self.cache._data.setdefault(key, [])
         while len(scores) <= slot:
             self.episodes += 1
-            self.cache.append(key, float(self.run(task, config)))
+            score = float(self.run(task, config))
+            if not 0.0 <= score <= 1.0:
+                raise ValueError(
+                    f"run() returned {score} on task {task.id!r}: scores must be in [0, 1]"
+                )
+            self.cache.append(key, score)
         return scores[slot]
 
     def pair(

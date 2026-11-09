@@ -6,7 +6,9 @@ def test_replay_9b_verdicts():
     verdicts = {r.artifact: r.verdict for r in res["rows"]}
     assert verdicts["9b-r1"] == "commit"
     assert verdicts["9b-r2"] == "abstain_with_record"
-    assert verdicts["9b-r3"] == "reject"
+    # -0.25 on 20 items is fewer than 8 discordant pairs: the honest
+    # verdict is underpowered abstain, not a rejection on a thin z tail
+    assert verdicts["9b-r3"] == "abstain_with_record"
     assert res["noise"]["flips"] > 0  # the noise floor is real
 
 

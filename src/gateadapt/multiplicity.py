@@ -1,4 +1,4 @@
-"""SAFFRON-style alpha-investing wealth pool.
+"""Alpha-investing-style wealth pool.
 
 Every gated look spends wealth from a shared per-family pool priced in equal
 quarters (wealth / looks per look). Wealth is the only thing that gates: a
@@ -9,6 +9,10 @@ look returns its quarter), while a family that churns inconclusively drains
 its budget in four unresolved looks. Total wealth *spent* stays bounded at
 the pool size regardless of test count, the alpha-investing property that
 keeps sequential peeping honest.
+
+This is alpha investing in spirit, not SAFFRON: SAFFRON adds adaptive
+discarding and earns wealth back on rejections, neither of which happens
+here.
 """
 
 from __future__ import annotations
@@ -17,7 +21,7 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class SaffronPool:
+class AlphaPool:
     """Shared per-family test budget.
 
     `refund_decided` is the refund-on-decision switch: when True a decided
@@ -56,3 +60,7 @@ class SaffronPool:
         if not self.refund_decided:
             return
         self._spent = max(0.0, self._spent - alpha)
+
+
+# kept for backwards compatibility with the pre-rename name
+SaffronPool = AlphaPool

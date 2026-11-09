@@ -98,7 +98,7 @@ class TestAdmit:
         """Re-admitting a committed id replaces it, matching the ledger
         rebuild's dedup-by-id instead of stacking two same-id artifacts."""
         dev, probe, _ = world
-        g = gate(dev, probe)
+        g = gate(dev, probe, boost=(0.55, lambda t: True))
         d1 = g.admit(BASE_CFG, Mutation(id="x", patch={"contract": True},
                                         scope='tags.type == "refusal"'))
         assert d1.verdict == Verdict.COMMIT
@@ -219,8 +219,12 @@ class TestLedger:
         g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True}, scope='tags.type == "refusal"'))
         g.admit(BASE_CFG, Mutation(id="h", patch={"always_answer": True}, scope="all"))
         events = read_ledger(lp)
-        assert [e["event"] for e in events] == ["verdict", "verdict"]
-        assert events[0]["verdict"] == "commit" and events[1]["verdict"] == "reject"
+        # each look spends then refunds on decision, around its verdict
+        assert [e["event"] for e in events] == [
+            "look_spend", "look_refund", "verdict",
+            "look_spend", "look_refund", "verdict",
+        ]
+        assert events[2]["verdict"] == "commit" and events[5]["verdict"] == "reject"
 
     def test_committed_set_rebuilds(self, world, tmp_path):
         dev, probe, _ = world
@@ -236,6 +240,22 @@ class TestLedger:
         g2.committed = committed
         g2.audit(BASE_CFG)
         assert committed_from_ledger(lp) == []
+
+    def test_pools_rebuild_from_ledger(self, world, tmp_path):
+        """Spend and refund events persist: a new process resumes the
+        family's budget, drained wealth does not refill."""
+        dev, probe, _ = world
+        lp = str(tmp_path / "ledger.jsonl")
+        g = gate(dev, probe, ledger=lp)
+        g.admit(BASE_CFG, Mutation(id="c", patch={"contract": True},
+                                   scope='tags.type == "refusal"',
+                                   family="fam"))
+        g.admit(BASE_CFG, Mutation(id="w", patch={"lift": True},
+                                   scope='tags.type == "answer"', family="fam"))
+        g2 = gate(dev, probe, ledger=lp)
+        fam = g2._pools["fam"]
+        mine = g._pools["fam"]
+        assert fam._spent == mine._spent and fam._look_index == mine._look_index
 
     def test_gate_loads_committed_from_ledger(self, world, tmp_path):
         """A ledger path is load-bearing: the gate rebuilds the committed

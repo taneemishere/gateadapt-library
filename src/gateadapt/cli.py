@@ -88,7 +88,7 @@ def _print_verdict(d) -> None:
     if "heterogeneity" in det:
         h = det["heterogeneity"]
         print(
-            f"  heterogeneity: in {h['diff_in']:+.3f} (n {h['n_in']}) · "
+            f"  dev scan: in {h['diff_in']:+.3f} (n {h['n_in']}) · "
             f"out {h['diff_out']:+.3f} (n {h['n_out']})"
         )
         print(f"  narrowed scope: {det['narrowed_scope']}")

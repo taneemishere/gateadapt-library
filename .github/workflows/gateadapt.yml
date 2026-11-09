@@ -35,12 +35,13 @@ jobs:
       - name: Test suite
         run: python -m pytest tests/ -x -q
 
-      - name: Helpful mutation commits (exit 0)
+      - name: Helpful mutation commits via synthesis reserve (exit 0)
         run: |
           gateadapt admit examples/mutations/refusal_contract.yaml \
             --config examples/config.yaml \
             --tasks examples/tasks_dev.jsonl \
             --probe examples/tasks_probe.jsonl \
+            --reserve examples/tasks_reserve.jsonl \
             --run examples/toy_agent.py:run
 
       - name: Harmful mutation rejects (exit 1 must fail the job)

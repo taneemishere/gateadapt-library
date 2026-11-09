@@ -56,3 +56,21 @@ def committed_from_ledger(path: str | Path) -> list[Mutation]:
         elif kind == "revoke":
             committed.pop(ev.get("artifact_id", ""), None)
     return [committed[i] for i in order if i in committed]
+
+
+def pools_from_ledger(path: str | Path) -> dict[str, dict[str, Any]]:
+    """Rebuild per-family pool state (spent wealth, look count) from the
+    ledger's look_spend/look_refund events, so multiplicity control carries
+    across processes and CI runs, the same way the committed set does."""
+    pools: dict[str, dict[str, Any]] = {}
+    for ev in read_ledger(path):
+        kind = ev.get("event")
+        if kind not in ("look_spend", "look_refund"):
+            continue
+        st = pools.setdefault(ev["family"], {"spent": 0.0, "looks": 0})
+        if kind == "look_spend":
+            st["spent"] += float(ev["alpha"])
+            st["looks"] += 1
+        else:
+            st["spent"] = max(0.0, st["spent"] - float(ev["alpha"]))
+    return pools

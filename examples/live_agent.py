@@ -3,9 +3,9 @@ as the toy agent. Wire it once, then `gateadapt admit` measures real
 episodes, a mutation's patch (system_prompt / prompt_suffix / temperature /
 model) reaches the served model per call.
 
-Key comes from NVIDIA_API_KEY or the GATEADAPT_NVAPI_KEYFILE path
-(default ~/gateadapt/nvapi_key on this machine). Rate limit
-hard-capped under the provider's 40 rpm tier (default 36).
+Key comes from NVIDIA_API_KEY, or a one-line keyfile at
+GATEADAPT_NVAPI_KEYFILE. Rate limit hard-capped under the provider's
+40 rpm tier (default 36).
 
     gateadapt admit examples/mutations/strict_answers.yaml \
         --config examples/config.yaml \
@@ -22,9 +22,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from gateadapt.llm import NvidiaNIMClient, client_from_keyfile  # noqa: E402
 from gateadapt.live import exact_match, live_run  # noqa: E402
 
-_DEFAULT_KEYFILE = os.path.expanduser("~/gateadapt/nvapi_key")
-
-
 def build_llm(model: str | None = None) -> NvidiaNIMClient:
     # temperature=0 keeps episodes deterministic, the eval's default;
     # ambient params are namespaced into the cache key, so overriding via
@@ -36,8 +33,13 @@ def build_llm(model: str | None = None) -> NvidiaNIMClient:
             max_rpm=36,
             temperature=temperature,
         )
+    keyfile = os.environ.get("GATEADAPT_NVAPI_KEYFILE")
+    if not keyfile:
+        raise RuntimeError(
+            "set NVIDIA_API_KEY or GATEADAPT_NVAPI_KEYFILE to a one-line keyfile"
+        )
     return client_from_keyfile(
-        os.environ.get("GATEADAPT_NVAPI_KEYFILE", _DEFAULT_KEYFILE),
+        keyfile,
         model=model or "nvidia/nemotron-3-ultra-550b-a55b",
         max_rpm=36,
         temperature=temperature,

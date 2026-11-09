@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 from .cache import EpisodeCache
 from .decks import Deck, DeckRole
-from .ledger import append_event, committed_from_ledger
+from .ledger import append_event, committed_from_ledger, pools_from_ledger
 from .models import (
     ArtifactKind,
     Decision,
@@ -35,7 +35,7 @@ from .models import (
     Task,
     Verdict,
 )
-from .multiplicity import SaffronPool
+from .multiplicity import AlphaPool
 from .mutation import apply_mutation, effective_config
 from .scope import evaluate, infer_spec, to_jsonable, validate
 from .stats import (
@@ -167,7 +167,15 @@ class Gate:
         self.committed: list[Mutation] = (
             committed_from_ledger(ledger_path) if ledger_path else []
         )
-        self._pools: dict[str, SaffronPool] = {}
+        self._pools: dict[str, AlphaPool] = {}
+        if ledger_path:
+            # pool spend/refunds persist too: a family's drained budget must
+            # not refill just because a new process started (CI runs per-PR)
+            for fam, st in pools_from_ledger(ledger_path).items():
+                pool = self._new_pool()
+                pool._spent = st["spent"]
+                pool._look_index = st["looks"]
+                self._pools[fam] = pool
         self._n_decisions = 0
         # G3 lifecycle state. Abstained artifacts wait here for a partner to
         # arrive; promoted ones record the partner they depend on
@@ -183,15 +191,32 @@ class Gate:
         self.committed = [c for c in self.committed if c.id != mutation.id]
         self.committed.append(mutation)
 
-    def _pool(self, mutation: Mutation) -> SaffronPool:
-        """One SAFFRON pool per mutation family. A family that keeps producing
-        indecisive members drains its own budget, not the gate's."""
-        return self._pools.setdefault(
-            mutation.family_name,
-            SaffronPool(
-                wealth=self.wealth, looks=self.looks, refund_decided=self.refund_decided
-            ),
+    def _new_pool(self) -> AlphaPool:
+        # without an item source only the dev look can ever run, so it
+        # prices at wealth/2 (the nominal alpha) instead of a quarter
+        looks = self.looks if (self._generate or self._reserve) else 2
+        return AlphaPool(
+            wealth=self.wealth, looks=looks, refund_decided=self.refund_decided
         )
+
+    def _pool(self, mutation: Mutation) -> AlphaPool:
+        """One alpha-investing pool per mutation family. A family that keeps
+        producing indecisive members drains its own budget, not the gate's."""
+        return self._pools.setdefault(mutation.family_name, self._new_pool())
+
+    def _spend(self, pool: AlphaPool, family: str, alpha: float) -> None:
+        pool.spend(alpha)
+        if self.ledger_path:
+            append_event(
+                self.ledger_path, {"event": "look_spend", "family": family, "alpha": alpha}
+            )
+
+    def _refund(self, pool: AlphaPool, family: str, alpha: float) -> None:
+        pool.refund(alpha)
+        if self.ledger_path:
+            append_event(
+                self.ledger_path, {"event": "look_refund", "family": family, "alpha": alpha}
+            )
 
     # ---- measurement helpers -------------------------------------------------
 
@@ -411,7 +436,7 @@ class Gate:
         base_config: dict,
         committed: list[Mutation],
         resolved: Mutation,
-        pool: SaffronPool,
+        pool: AlphaPool,
         rng: random.Random,
     ) -> tuple[Verdict, list[dict[str, Any]]]:
         """Direction-blind synthesis. Only the discordant region is described,
@@ -426,7 +451,7 @@ class Gate:
             if alpha_k <= 0:
                 rounds.append({"k": k, "reason": "looks_exhausted"})
                 break
-            pool.spend(alpha_k)
+            self._spend(pool, resolved.family_name, alpha_k)
             fresh = self._draw_fresh(resolved.fires, self.items_per_round, rng)
             if fresh:
                 self.dev.add(fresh)
@@ -448,9 +473,9 @@ class Gate:
                 }
             )
             if v is not None:
-                pool.refund(alpha_k)
-                return v, rounds
-        return Verdict.ABSTAIN_WITH_RECORD, rounds
+                self._refund(pool, resolved.family_name, alpha_k)
+                return v, rounds, m
+        return Verdict.ABSTAIN_WITH_RECORD, rounds, None
 
     # ---- G3: lifecycle probe, conditional promotion, drift --------------------
 
@@ -577,7 +602,7 @@ class Gate:
         """Each new commit re-opens the deferred queue: an artifact that
         abstained inert now gets measured *conditional on* each committed
         partner whose region overlaps. A conditional gain promotes it, the
-        lifecycle instrument, costing no SAFFRON look. Retries only count
+        lifecycle instrument, costing no pool look. Retries only count
         when an overlap region was actually probed."""
         events: list[dict[str, Any]] = []
         still: list[list] = []
@@ -692,7 +717,7 @@ class Gate:
                 {"reason": "family_budget_exhausted"},
                 rng,
             )
-        pool.spend(alpha1)
+        self._spend(pool, mutation.family_name, alpha1)
         looks_trace: list[dict[str, Any]] = [{"look": 1, "alpha": alpha1, "where": "dev"}]
 
         m = self._region_measure(
@@ -717,13 +742,13 @@ class Gate:
             # the correct verdict is a commit on the narrowed scope.
             corrected = self._scope_correct(base_config, self.committed, mutation, alpha1, rng)
             if corrected is not None:
-                pool.refund(alpha1)
+                self._refund(pool, mutation.family_name, alpha1)
                 return self._scope_corrected(mutation, corrected, base_detail, rng, base_config)
             ok, probe_m = self._transfer_probe(
                 base_config, self.committed, mutation, mutation.fires, rng
             )
             if not ok:
-                pool.refund(alpha1)
+                self._refund(pool, mutation.family_name, alpha1)
                 base_detail["caught_by"] = "transfer_probe"
                 base_detail["probe"] = {
                     "n": probe_m.n,
@@ -732,7 +757,7 @@ class Gate:
                     "losses": probe_m.losses,
                 }
                 return self._record(mutation, Verdict.REJECT, base_detail, rng)
-            pool.refund(alpha1)
+            self._refund(pool, mutation.family_name, alpha1)
             base_detail["transfer_probe"] = (
                 "skipped (no probe deck)" if probe_m is None else "pass"
             )
@@ -741,9 +766,9 @@ class Gate:
         if significant and m.diff < 0:
             corrected = self._scope_correct(base_config, self.committed, mutation, alpha1, rng)
             if corrected is not None:
-                pool.refund(alpha1)
+                self._refund(pool, mutation.family_name, alpha1)
                 return self._scope_corrected(mutation, corrected, base_detail, rng, base_config)
-            pool.refund(alpha1)
+            self._refund(pool, mutation.family_name, alpha1)
             return self._record(mutation, Verdict.REJECT, base_detail, rng)
 
         # inconclusive, scope scan first (rescue a heterogeneous subregion),
@@ -751,7 +776,7 @@ class Gate:
         scan = self._scope_scan(self.dev.items, base_config, self.committed, mutation, rng)
         corrected = self._accept_correction(scan, base_config, self.committed, mutation, alpha1, rng)
         if corrected is not None:
-            pool.refund(alpha1)
+            self._refund(pool, mutation.family_name, alpha1)
             return self._scope_corrected(mutation, corrected, base_detail, rng, base_config)
 
         resolved = mutation
@@ -771,8 +796,26 @@ class Gate:
             resolved = narrowed
 
         if self._generate is not None or self._reserve is not None:
-            v2, rounds = self._synthesize(base_config, self.committed, resolved, pool, rng)
+            v2, rounds, m2 = self._synthesize(
+                base_config, self.committed, resolved, pool, rng
+            )
             base_detail["synthesis_rounds"] = rounds
+            if m2 is not None:
+                # the verdict rests on the cumulative test pool, so the
+                # top-level stats must be that measurement, not the
+                # inconclusive dev scan that triggered synthesis
+                base_detail.update(
+                    {
+                        "region_n": m2.n,
+                        "diff": m2.diff,
+                        "diff_se": m2.diff_se,
+                        "p": m2.p,
+                        "wins": m2.wins,
+                        "losses": m2.losses,
+                        "base_mean": m2.base_mean,
+                        "decided_by": "synthesis_pool",
+                    }
+                )
             if v2 == Verdict.COMMIT:
                 ok, probe_m = self._transfer_probe(
                     base_config, self.committed, resolved, resolved.fires, rng

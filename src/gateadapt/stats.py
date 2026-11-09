@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from statistics import NormalDist
 from typing import Any, Callable
 
+# below this many discordant pairs the paired z-test is anti-conservative
+_MIN_DISCORDANT = 8
+
 
 @dataclass
 class PairedResult:
@@ -32,11 +35,17 @@ class PairedResult:
 
     @property
     def p(self) -> float:
-        """Two-sided normal p on the paired diff. When the diff distribution
-        is degenerate (se == 0, every item moved identically, or not at
-        all), falls back to the exact sign test on discordant pairs: an
-        all-wins run is the *most* significant outcome, not p = 1."""
-        if self.diff_se <= 0 or math.isinf(self.diff_se):
+        """Two-sided normal p on the paired diff. With fewer than
+        _MIN_DISCORDANT discordant pairs the z tail reads anti-
+        conservative (a handful of wins or losses looks like a tight se),
+        so the exact sign test, the McNemar statistic, is the bound. The
+        same fallback covers a degenerate diff distribution."""
+        discordant = self.wins + self.losses
+        if (
+            self.diff_se <= 0
+            or math.isinf(self.diff_se)
+            or discordant < _MIN_DISCORDANT
+        ):
             return sign_test_p(self.wins, self.losses)
         z = abs(self.diff) / self.diff_se
         return math.erfc(z / math.sqrt(2))

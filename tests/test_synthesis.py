@@ -45,7 +45,7 @@ LIFT_MUT = lambda: Mutation(id="tk", patch={"retrieval.top_k": 8}, scope="all")
 class TestSynthesis:
     def test_commit_via_cumulative_test_pool(self):
         dev, probe = answers(24, "dev", 11), answers(24, "probe", 23)
-        g = gate(list(dev), list(probe), answers(320, "res", 53), effect=0.20)
+        g = gate(list(dev), list(probe), answers(320, "res", 53), effect=0.35)
         d = g.admit(BASE_CFG, LIFT_MUT())
         assert d.verdict == Verdict.COMMIT
         rounds = d.detail["synthesis_rounds"]
@@ -68,7 +68,7 @@ class TestSynthesis:
 
     def test_dev_deck_grows_with_synthesized_items(self):
         dev = answers(24, "dev", 11)
-        g = gate(list(dev), reserve=answers(320, "res", 53), effect=0.20)
+        g = gate(list(dev), reserve=answers(320, "res", 53), effect=0.35)
         g.admit(BASE_CFG, LIFT_MUT())
         # commit at round 2, two rounds of 24 fresh items joined dev
         assert len(g.dev.items) == 24 + 48
@@ -76,7 +76,7 @@ class TestSynthesis:
     def test_reserve_drawn_without_replacement(self):
         dev = answers(24, "dev", 11)
         reserve = answers(320, "res", 53)
-        g = gate(list(dev), reserve=reserve, effect=0.20)
+        g = gate(list(dev), reserve=reserve, effect=0.35)
         g.admit(BASE_CFG, LIFT_MUT())
         drawn_ids = {t.id for t in g.dev.items if t.id.startswith("res-")}
         remaining_ids = {t.id for t in g._reserve}
@@ -100,7 +100,7 @@ class TestSynthesis:
             return out
 
         dev = answers(24, "dev", 11)
-        g = gate(list(dev), generate=generate, effect=0.20)
+        g = gate(list(dev), generate=generate, effect=0.35)
         d = g.admit(BASE_CFG, LIFT_MUT())
         assert d.verdict == Verdict.COMMIT
         assert calls  # the synthesizer was asked for fresh in-region items

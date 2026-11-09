@@ -38,7 +38,7 @@ class TestDeferredPromotion:
         d = g.admit(BASE_CFG, PB())
         assert d.verdict == Verdict.COMMIT
         # the deferred artifact promoted on the conditional gain,
-        # no SAFFRON look spent, the lifecycle instrument found it
+        # no budgeted look spent, the lifecycle instrument found it
         ids = [m.id for m in g.committed]
         assert ids == ["pb", "ix"]
         assert g.promoted_via == {"ix": "pb"}

@@ -30,7 +30,7 @@ def test_config_keys_distinguish_arms():
     s = RunSurface(run, draws=1)
     t = Task(id="a")
     assert s.draw(t, {"x": 1.0}, 0) == 1.0
-    assert s.draw(t, {"x": 2.0}, 0) == 2.0
+    assert s.draw(t, {"x": 0.7}, 0) == 0.7
 
 
 def test_persistence(tmp_path):
