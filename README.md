@@ -84,7 +84,6 @@ verdict: commit
   region: 24/48 items · paired diff +0.292 (se 0.095, p 0.0156) · wins 7 losses 0
   synthesis round 1: drew 24 fresh · test pool 12 · diff +0.250 (p 0.2500 @ α 0.025) · inconclusive
   synthesis round 2: drew 24 fresh · test pool 24 · diff +0.292 (p 0.0156 @ α 0.025) · commit
-  transfer probe: pass
 ```
 
 Try the other demo mutations; they cover the full verdict space.
@@ -187,33 +186,32 @@ gateadapt admit examples/mutations/strict_answers.yaml \
 ```
 
 ```
-verdict: commit
-  region: 9/16 items · paired diff +0.667 (se 0.167, p 0.0001) · wins 6 losses 0
-  transfer probe: pass
+verdict: abstain_with_record
+  region: 8/16 items · paired diff +0.500 (se 0.189, p 0.1250) · wins 4 losses 0
+  underpowered: have 8 in-scope · need ~2 more (at ±0.50)
 ```
 
 That was a real run on nemotron-3-ultra-550b via NIM (key from
-`NVIDIA_API_KEY` or `--keyfile`), 32 API calls, about 10 minutes of wall
-time. The model's verbose "2 + 2 = 4" fails `exact_match("4")` and the
-output contract fixes it. The episode cache keys each call by (task,
+`NVIDIA_API_KEY` or `--keyfile`), 16 API calls, about 35 seconds of wall
+time. The model's verbose "2 + 2 = 4" fails `exact_match("4")`. The
+output contract fixes 4 of the 8 answer items, which is too few
+discordant pairs to commit. The episode cache keys each call by (task,
 config) fingerprint, so a rerun measures nothing twice. You can interrupt
 and resume freely.
 
-The full verdict space has been exercised live on that substrate.
+Live runs on that model reached commit, scope_correct and
+abstain_with_record. Reject has only been shown on the toy agent.
 
 | live mutation | verdict | evidence |
 |---|---|---|
-| `strict_answers` | `commit` | +0.667 on answers, probe pass |
-| `refusal_contract_live` | `commit` | +1.000 on refusals (stacked on the first) |
-| `live_unknown` | `reject` | −0.625, the sabotage contract kills the stack's answers |
-| `temp_tune` | `abstain_with_record` | +0.125 on 8 items, p=0.32, "need ~204 more" |
-| `context_only` | `scope_correct` | declared `all`, concentrated in `tags.type == "refusal"` |
-| `brief_answer` | `commit` via **G2** | dev p=0.0404 inconclusive, then an LLM-minted round of 22 fresh items at +0.545 (p=0.0005) |
-| `sequence` strict→terse→refusal | **G3** lifecycle | terse abstains, defers, then the conditional retry on strict's overlap ran a real 4-arm measurement; clean pair probe |
+| `strict_answers` | `abstain_with_record` | +0.500 on answers, 4 wins 0 losses, p=0.125 |
+| `refusal_contract_live` | `commit` | +1.000 on refusals, 8 wins 0 losses, p=0.0078, run on its own |
+| `live_unknown` | `abstain_with_record` | +0.000, the answer baseline was already 0/8 because strict_answers never committed |
+| `temp_tune` | `abstain_with_record` | +0.000 on 8 items, p=1.00, "need ~258 more" |
+| `context_only` | `scope_correct` | declared `all`, concentrated in `tags.type == "refusal"` (+0.500, 8 wins 0 losses) |
+| `brief_answer` | `commit` via **G2** | two LLM-minted rounds of 18 fresh items, +0.556 (p=0.0625) inconclusive, then +0.611 (p<0.0001) commit |
 
-The last row is what a clean G3 live run looks like. The machinery ran
-the 4-arm conditional measurement on real episodes, found no interaction
-(disjoint scopes), and emitted no false event. A clean pair logs nothing.
+A G3 conditional retry has not yet been shown live.
 
 The same gate was also run against a private corpus-QA harness
 (retrieval + LLM + rubric-scored episodes), where five artifact

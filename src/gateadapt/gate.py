@@ -50,6 +50,7 @@ from .stats import (
     eval_conditional,
     eval_pair,
     fisher_p,
+    sign_needed,
     sign_test_p,
     tasks_needed,
 )
@@ -888,12 +889,20 @@ class Gate:
             if v2 == Verdict.REJECT:
                 return self._record(mutation, Verdict.REJECT, base_detail, rng)
 
-        need = tasks_needed(
-            effect=max(abs(m.diff), 0.05), base=max(m.base_mean, 0.02), alpha=self.alpha
-        )
+        if m.decides_by_sign_test:
+            # the deciding statistic here is the exact sign test, so the
+            # honest hint is extra decisive pairs at the look's alpha, not
+            # a normal-approximation task count
+            need = sign_needed(m.wins, m.losses, alpha=alpha1)
+        else:
+            need = tasks_needed(
+                effect=max(abs(m.diff), 0.05),
+                base=max(m.base_mean, 0.02),
+                alpha=self.alpha,
+            ) - m.n
         base_detail["needed"] = {
             "have": m.n,
-            "need": max(need - m.n, 0),
+            "need": max(need, 0),
             "at_effect": max(abs(m.diff), 0.05),
         }
         base_detail["reason"] = (

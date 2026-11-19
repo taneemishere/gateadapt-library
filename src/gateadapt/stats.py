@@ -34,18 +34,25 @@ class PairedResult:
         return sum(r["base"] for r in self.per_item) / len(self.per_item)
 
     @property
+    def decides_by_sign_test(self) -> bool:
+        """Whether `p` falls back to the exact sign test: fewer than
+        _MIN_DISCORDANT discordant pairs, or a degenerate diff
+        distribution."""
+        discordant = self.wins + self.losses
+        return (
+            self.diff_se <= 0
+            or math.isinf(self.diff_se)
+            or discordant < _MIN_DISCORDANT
+        )
+
+    @property
     def p(self) -> float:
         """Two-sided normal p on the paired diff. With fewer than
         _MIN_DISCORDANT discordant pairs the z tail reads anti-
         conservative (a handful of wins or losses looks like a tight se),
         so the exact sign test, the McNemar statistic, is the bound. The
         same fallback covers a degenerate diff distribution."""
-        discordant = self.wins + self.losses
-        if (
-            self.diff_se <= 0
-            or math.isinf(self.diff_se)
-            or discordant < _MIN_DISCORDANT
-        ):
+        if self.decides_by_sign_test:
             return sign_test_p(self.wins, self.losses)
         z = abs(self.diff) / self.diff_se
         return math.erfc(z / math.sqrt(2))
@@ -159,6 +166,19 @@ def sign_test_p(wins: int, losses: int) -> float:
     k = min(wins, losses)
     tail = sum(math.comb(n, i) for i in range(k + 1)) / 2**n
     return min(1.0, 2 * tail)
+
+
+def sign_needed(wins: int, losses: int, alpha: float = 0.05) -> int:
+    """Smallest number of additional decisive pairs for the exact sign test
+    to pass at two-sided `alpha`, assuming the new items all land on the
+    observed majority side. 0 when the current count already decides."""
+    if not 0 < alpha < 1:
+        return 0
+    hi, lo = max(wins, losses), min(wins, losses)
+    k = 0
+    while sign_test_p(hi + k, lo) >= alpha:
+        k += 1
+    return k
 
 
 def fisher_p(p1: float, p2: float) -> float:

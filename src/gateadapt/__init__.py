@@ -25,7 +25,14 @@ from .models import (
     Verdict,
 )
 from .scope import evaluate, infer_spec, parse, validate
-from .stats import ConditionalResult, PairedResult, eval_pair, sign_test_p, tasks_needed
+from .stats import (
+    ConditionalResult,
+    PairedResult,
+    eval_pair,
+    sign_needed,
+    sign_test_p,
+    tasks_needed,
+)
 
 __version__ = "0.4.0"
 
@@ -53,6 +60,7 @@ __all__ = [
     "validate",
     "infer_spec",
     "eval_pair",
+    "sign_needed",
     "sign_test_p",
     "tasks_needed",
     "read_ledger",
