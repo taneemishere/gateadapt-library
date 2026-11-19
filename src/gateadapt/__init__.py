@@ -34,7 +34,12 @@ from .stats import (
     tasks_needed,
 )
 
-__version__ = "0.4.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("gateadapt")
+except PackageNotFoundError:
+    __version__ = "0.0.0"  # source tree, never installed
 
 __all__ = [
     "Gate",
