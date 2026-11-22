@@ -105,18 +105,33 @@ class TestDeferredPromotion:
 
 
 class TestInteractionProbe:
-    def test_conflict_revokes_both_sides(self):
+    def test_conflict_caught_by_transfer_probe(self):
+        """cb's gain on top of ca exists only on dev items, fresh probe
+        items show nothing, so the transfer probe rejects it before it can
+        enter the committed set."""
         dev, probe = world()
         g = Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1)
         d1 = g.admit(BASE_CFG, Mutation(id="ca", patch={"conflict.a": True}, scope="all"))
         assert d1.verdict == Verdict.COMMIT
         d2 = g.admit(BASE_CFG, Mutation(id="cb", patch={"conflict.b": True}, scope="all"))
-        assert d2.verdict == Verdict.COMMIT
-        # joint effect inverts, the pairwise probe revokes both members
+        assert d2.verdict == Verdict.REJECT
+        assert d2.detail["caught_by"] == "transfer_probe"
+        assert d2.detail["probe"]["reason"] == "no_transfer"
+        assert [m.id for m in g.committed] == ["ca"]
+
+    def test_conflict_revokes_both_sides(self):
+        """When a cancelling pair is already committed (here admitted with no
+        probe deck to catch it), the G3 pairwise probe revokes both."""
+        dev, probe = world()
+        g = Gate(run=scripted_run(), dev=dev, draws=3, seed=1, conflict_min=0.10)
+        g.admit(BASE_CFG, Mutation(id="ca", patch={"conflict.a": True}, scope="all"))
+        g.admit(BASE_CFG, Mutation(id="cb", patch={"conflict.b": True}, scope="all"))
+        assert {m.id for m in g.committed} == {"ca", "cb"}
+        g.shift(probe=probe)
+        events = g._lifecycle_probe(BASE_CFG, g._rng("conflict"))
         assert g.committed == []
         assert set(g.revoked) == {"ca", "cb"}
-        revokes = [e for e in d2.detail["lifecycle"] if e["event"] == "revoke"]
-        assert {e["artifact_id"] for e in revokes} == {"ca", "cb"}
+        assert {e["artifact_id"] for e in events if e["event"] == "revoke"} == {"ca", "cb"}
 
     def test_positive_interaction_detected_not_duplicated(self):
         g = pair_world()
@@ -235,3 +250,45 @@ class TestDeferredBounded:
         # ix is never promoted
         assert g.deferred[0][1] == _MAX_DEFERRED_RETRIES
         assert "ix" not in [m.id for m in g.committed]
+
+
+def test_deferred_retry_count_survives_rebuild(tmp_path):
+    """The retry cap must hold across processes: a rebuilt gate sees the
+    probed retries the last process recorded, not a fresh budget."""
+    dev, probe = world()
+    ledger = str(tmp_path / "l.jsonl")
+    run = scripted_run(topk_answer=(0.30, lambda t: t.tags.get("type") == "answer"))
+    g = Gate(run=run, dev=dev, probe=probe, draws=3, seed=1, ledger_path=ledger)
+    g.admit(BASE_CFG, IX())
+    # p commits, overlaps ix without unlocking it, and burns one probed retry
+    g.admit(BASE_CFG, Mutation(id="p", patch={"prune": True}, scope="all"))
+    live = dict((m.id, r) for m, r in g.deferred)
+    assert live["ix"] == 1
+    rebuilt = Gate(run=run, dev=dev, probe=probe, ledger_path=ledger)
+    assert dict((m.id, r) for m, r in rebuilt.deferred) == live
+    assert rebuilt.artifact_state("ix")["retries"] == live["ix"]
+
+
+def test_lifecycle_episodes_persist_to_cache(tmp_path):
+    """The G3 probe runs after the verdict is recorded; its episodes must
+    still reach the cache, or a rerun re-bills the promotion measurement."""
+    dev, probe = world()
+    cache = str(tmp_path / "ep.json")
+    calls = {"n": 0}
+    inner = scripted_run()
+
+    def counting(t, c):
+        calls["n"] += 1
+        return inner(t, c)
+
+    def run_once(ledger):
+        g = Gate(run=counting, dev=dev, probe=probe, draws=3, seed=1,
+                 cache_path=cache, ledger_path=str(tmp_path / ledger))
+        g.admit(BASE_CFG, IX())
+        d = g.admit(BASE_CFG, PB())
+        assert any(e["event"] == "promote" for e in d.detail["lifecycle"])
+
+    run_once("a.jsonl")
+    first = calls["n"]
+    run_once("b.jsonl")
+    assert first > 0 and calls["n"] == first  # the rerun is served entirely from cache

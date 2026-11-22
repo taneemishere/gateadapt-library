@@ -79,8 +79,8 @@ def pools_from_ledger(path: str | Path) -> dict[str, dict[str, Any]]:
 def lifecycle_from_ledger(path: str | Path) -> dict[str, Any]:
     """Rebuild the G3 lifecycle sets the way committed_from_ledger rebuilds
     the committed set: promoted partners, recorded interactions, revocations,
-    rejected ids, and artifacts still deferred awaiting a partner. Retry
-    counters are not persisted; a rebuilt deferred artifact restarts at 0."""
+    rejected ids, and artifacts still deferred awaiting a partner, with the
+    retry count their deferred_retry events recorded."""
     out: dict[str, Any] = {
         "revoked": [],
         "promoted_via": {},
@@ -116,6 +116,10 @@ def lifecycle_from_ledger(path: str | Path) -> dict[str, Any]:
             if aid not in out["revoked"]:
                 out["revoked"].append(aid)
             deferred.pop(aid, None)
+        elif kind == "deferred_retry":
+            entry = deferred.get(ev.get("artifact_id", ""))
+            if entry is not None:
+                entry[1] += 1
         elif kind == "interaction":
             pair = ev.get("pair")
             if pair and pair not in out["interactions"]:

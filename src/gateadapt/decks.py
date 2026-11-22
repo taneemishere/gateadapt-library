@@ -25,6 +25,36 @@ class HonestyViolation(RuntimeError):
     instrument. This is the honesty invariant made executable."""
 
 
+def check_unique_ids(items: list[Task], label: str) -> None:
+    """A repeated id is the same item counted twice: one favorable draw
+    would read as many independent wins. Refuse it at the boundary."""
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for t in items:
+        if t.id in seen and t.id not in dupes:
+            dupes.append(t.id)
+        seen.add(t.id)
+    if dupes:
+        shown = ", ".join(repr(d) for d in dupes[:5])
+        more = f" (+{len(dupes) - 5} more)" if len(dupes) > 5 else ""
+        raise ValueError(f"{label}: duplicate task ids {shown}{more}")
+
+
+def check_disjoint(decks: dict[str, list[Task]]) -> None:
+    """Every instrument must hold different items. A probe or audit item
+    that is also a dev item can't test transfer, it re-tests the dev gain."""
+    named = [(k, {t.id for t in v}) for k, v in decks.items() if v]
+    for i, (a, ids_a) in enumerate(named):
+        for b, ids_b in named[i + 1 :]:
+            shared = sorted(ids_a & ids_b)
+            if shared:
+                shown = ", ".join(repr(x) for x in shared[:5])
+                more = f" (+{len(shared) - 5} more)" if len(shared) > 5 else ""
+                raise ValueError(
+                    f"{a} and {b} decks share {len(shared)} task id(s): {shown}{more}"
+                )
+
+
 @dataclass
 class Deck:
     role: DeckRole
@@ -59,6 +89,7 @@ def load_tasks(path: str | Path, role: DeckRole | None = None) -> list[Task] | D
             tags = dict(obj.get("tags") or obj.get("features") or {})
             data = {k: v for k, v in obj.items() if k not in ("id", "task_id", "tags", "features")}
             tasks.append(Task(id=str(tid), tags=tags, data=data))
+    check_unique_ids(tasks, str(path))
     if role is not None:
         return Deck(role, tasks)
     return tasks

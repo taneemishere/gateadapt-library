@@ -13,7 +13,7 @@ from .decks import Deck, HonestyViolation, dump_tasks, load_tasks
 from .gate import Gate, g0_check
 from .ledger import committed_from_ledger, read_ledger
 from .live import contains, exact_match, live_run, llm_generate, llm_judge, predicate
-from .multiplicity import AlphaPool, SaffronPool
+from .multiplicity import AlphaPool
 from .models import (
     ArtifactKind,
     Decision,
@@ -56,7 +56,6 @@ __all__ = [
     "PairedResult",
     "ConditionalResult",
     "AlphaPool",
-    "SaffronPool",
     "load_tasks",
     "dump_tasks",
     "g0_check",
@@ -77,3 +76,11 @@ __all__ = [
     "llm_judge",
     "llm_generate",
 ]
+
+
+def __getattr__(name: str):
+    if name == "SaffronPool":
+        from . import multiplicity
+
+        return multiplicity.SaffronPool
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

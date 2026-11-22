@@ -27,10 +27,12 @@ def build_llm(model: str | None = None) -> NvidiaNIMClient:
     # ambient params are namespaced into the cache key, so overriding via
     # env never silently serves stale episodes
     temperature = float(os.environ.get("GATEADAPT_LLM_TEMPERATURE", "0"))
+    # the provider can throttle below its nominal 40 rpm under sustained use
+    max_rpm = int(os.environ.get("GATEADAPT_MAX_RPM", "36"))
     if os.environ.get("NVIDIA_API_KEY"):
         return NvidiaNIMClient.from_env(
             model=model or "nvidia/nemotron-3-ultra-550b-a55b",
-            max_rpm=36,
+            max_rpm=max_rpm,
             temperature=temperature,
         )
     keyfile = os.environ.get("GATEADAPT_NVAPI_KEYFILE")
@@ -41,13 +43,33 @@ def build_llm(model: str | None = None) -> NvidiaNIMClient:
     return client_from_keyfile(
         keyfile,
         model=model or "nvidia/nemotron-3-ultra-550b-a55b",
-        max_rpm=36,
+        max_rpm=max_rpm,
         temperature=temperature,
     )
 
 
+_NUMBER_WORDS = {
+    w: str(i)
+    for i, w in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve".split()
+    )
+}
+
+
+def harness_output(text: str, config: dict) -> str:
+    """The harness's output stage. With `normalize_numbers`, a one-word
+    number answer ("Two") becomes digits ("2"). It only touches one-word
+    replies, so on its own it can't fix a verbose answer, it helps only
+    once something else makes the model answer in a single word."""
+    if config.get("normalize_numbers"):
+        word = text.strip().strip(".!").lower()
+        if word in _NUMBER_WORDS:
+            return _NUMBER_WORDS[word]
+    return text
+
+
 llm = build_llm(os.environ.get("GATEADAPT_LLM_MODEL"))
-run = live_run(llm, exact_match())
+run = live_run(llm, exact_match(), postprocess=harness_output)
 
 
 def generate(region_fn, n, rng):

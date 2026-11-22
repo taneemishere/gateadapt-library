@@ -4,10 +4,11 @@ from gateadapt.replay import replay
 def test_replay_9b_verdicts():
     res = replay("9b")
     verdicts = {r.artifact: r.verdict for r in res["rows"]}
-    assert verdicts["9b-r1"] == "commit"
+    # +0.30 on 20 items is 7 wins 1 loss, exact McNemar p 0.070. An
+    # unchanged rerun already flips 6 of 20 tasks, so the edit AutoHarness
+    # kept can't be certified at this size; the paired z-test overclaimed it
+    assert verdicts["9b-r1"] == "abstain_with_record"
     assert verdicts["9b-r2"] == "abstain_with_record"
-    # -0.25 on 20 items is fewer than 8 discordant pairs: the honest
-    # verdict is underpowered abstain, not a rejection on a thin z tail
     assert verdicts["9b-r3"] == "abstain_with_record"
     assert res["noise"]["flips"] > 0  # the noise floor is real
 

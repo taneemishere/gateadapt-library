@@ -42,12 +42,15 @@ def live_run(
     llm: Any,
     scorer: Callable[[Task, str], float],
     default_system: str = _DEFAULT_SYSTEM,
+    postprocess: Callable[[str, dict], str] | None = None,
 ) -> Callable[[Task, dict], float]:
     """`run(task, config) -> score` backed by an LLM client.
 
     `llm` is anything with `.chat(messages, **overrides) -> str` (see
     gateadapt.llm.ChatClient). `scorer(task, response_text)` returns the
     episode score, supply task semantics (exact match, rubric judge, ...).
+    `postprocess(text, config)` is the harness's output stage, run before
+    scoring, so a mutation can change parsing as well as prompting.
     """
 
     def run(task: Task, config: dict) -> float:
@@ -62,6 +65,8 @@ def live_run(
             if k in config
         }
         text = llm.chat(messages, **overrides)
+        if postprocess is not None:
+            text = postprocess(text, config)
         return float(scorer(task, text))
 
     # ambient client params are part of the episode's identity, the run

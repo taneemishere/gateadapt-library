@@ -54,3 +54,14 @@ jobs:
             echo "::error::expected reject (exit 1), got success"
             exit 1
           fi
+
+      - name: Underpowered mutation abstains (exit 3, unknown is not passed)
+        run: |
+          set +e
+          gateadapt admit examples/mutations/topk_boost.yaml \
+            --config examples/config.yaml \
+            --tasks examples/tasks_dev.jsonl \
+            --probe examples/tasks_probe.jsonl \
+            --run examples/toy_agent.py:run
+          rc=$?
+          if [ $rc -ne 3 ]; then echo "::error::expected abstain (exit 3), got $rc"; exit 1; fi

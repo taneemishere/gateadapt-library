@@ -12,10 +12,10 @@ only there, on paired runs (same task, same draw, before vs after). The
 gate answers
 
 - **COMMIT** if the change measurably helps in its declared scope and the
-  fresh-item probe shows no harm
+  gain carries over to fresh probe items
 - **REJECT** if it harms, leaks held-out data, or is structurally invalid
 - **ABSTAIN** when there is not enough evidence yet. The verdict reports
-  how many more in-scope tasks are needed
+  how much more evidence is needed
 - **SCOPE-CORRECTED COMMIT** when the effect is real but confined to a
   subregion. The gate admits the change on the narrower scope instead of
   crediting the whole claim
@@ -62,12 +62,15 @@ gateadapt admit examples/mutations/refusal_contract.yaml \
 ```
 verdict: abstain_with_record
   region: 24/48 items · paired diff +0.208 (se 0.085, p 0.0625) · wins 5 losses 0
-  underpowered: have 24 in-scope · need ~44 more (at ±0.21)
+  95% CI: [-0.009, +0.394]
+  underpowered: have 24 in-scope · need ~1 more decisive pair, best case at ±0.21
 ```
 
-The effect is real but the evidence is thin: five wins and zero losses is
+The effect is real but the evidence is thin. Five wins and zero losses is
 too few discordant pairs to certify at this alpha, so the gate asks for
-more evidence instead of trusting a lucky z tail. Feed it a reserve deck
+more evidence instead of trusting a lucky z tail. The interval still
+includes 0, and it always agrees with the exact test that decided. The
+exit code is 3, which means unknown, not passed. Feed it a reserve deck
 and the synthesis loop supplies the missing items.
 
 ```bash
@@ -81,7 +84,8 @@ gateadapt admit examples/mutations/refusal_contract.yaml \
 
 ```
 verdict: commit
-  region: 24/48 items · paired diff +0.292 (se 0.095, p 0.0156) · wins 7 losses 0
+  fresh test pool: 24 items · paired diff +0.292 (se 0.095, p 0.0156) · wins 7 losses 0
+  95% CI: [+0.053, +0.493]
   synthesis round 1: drew 24 fresh · test pool 12 · diff +0.250 (p 0.2500 @ α 0.025) · inconclusive
   synthesis round 2: drew 24 fresh · test pool 24 · diff +0.292 (p 0.0156 @ α 0.025) · commit
 ```
@@ -95,11 +99,11 @@ Try the other demo mutations; they cover the full verdict space.
 | `topk_boost.yaml` | `abstain_with_record` | +0.04 on 24 items, underpowered |
 | `prune_hits.yaml` | `scope_correct` | helps only `tags.domain == "acme"` |
 | `memoize_dev.yaml` | `reject` | helps dev, harms fresh items, so the transfer probe catches it |
-| `answer_lift.yaml` | `scope_correct` (via G2) | underpowered on dev, synthesis narrows and resolves it |
+| `answer_lift.yaml` | `commit` (via G2) | underpowered on dev, synthesis resolves it |
 
 `answer_lift` shows G2. The effect is too weak to certify at dev scale, so
-the gate steers synthesis into the scan's best subregion and the
-cumulative test pool resolves it there.
+the gate draws fresh items and the cumulative test pool resolves it. The
+lift is uniform across answer items, so the gate does not narrow it.
 
 ```bash
 gateadapt admit examples/mutations/answer_lift.yaml \
@@ -112,17 +116,14 @@ gateadapt admit examples/mutations/answer_lift.yaml \
 ```
 
 ```
-verdict: scope_correct
-  region: 48/48 items · paired diff +0.208 (se 0.059, p 0.0004) · wins 10 losses 0
-  dev scan: in +0.071 (n 14) · out +0.100 (n 10)
-  narrowed scope: ['and', ['eq', 'tags.type', 'answer'], ['eq', 'tags.domain', 'nimbus']]
-  synthesis round 1: drew 96 fresh · test pool 48 · diff +0.208 (p 0.0004 @ α 0.025) · commit
+verdict: commit
+  fresh test pool: 48 items · paired diff +0.146 (se 0.051, p 0.0156) · wins 7 losses 0
+  95% CI: [+0.026, +0.257]
+  synthesis round 1: drew 96 fresh · test pool 48 · diff +0.146 (p 0.0156 @ α 0.025) · commit
 ```
 
-The dev-scan line only says where the gate *looked*: the scan picked the
-best subregion on dev and steered synthesis there. The verdict rests on
-the fresh test pool (the region line shows that measurement, not the dev
-scan that triggered synthesis). No reserve deck?
+The verdict rests on the fresh test pool, so that is the measurement the
+first line shows, not the dev look that triggered synthesis. No reserve deck?
 Pass `--generate examples/toy_agent.py:generate`, a callable
 `(region_fn, n, rng) -> [Task]` that mints in-region items. In a real
 deployment this is where your task forge goes.
@@ -143,11 +144,18 @@ gateadapt sequence \
 needs-pair-a:
 verdict: abstain_with_record        # inert alone, so it is deferred, not dead
   region: 48/48 items · paired diff +0.000 (se 0.000, p 1.0000) · wins 0 losses 0
+  95% CI: [-0.055, +0.055]
+  underpowered: have 48 in-scope · need ~6 more decisive pairs, best case at ±0.05
 needs-pair-b:
 verdict: commit
-  region: 48/48 items · paired diff +0.208 (se 0.059, p 0.0004) · wins 10 losses 0
+  region: 48/48 items · paired diff +0.208 (se 0.059, p 0.0020) · wins 10 losses 0
+  95% CI: [+0.080, +0.332]
+  transfer probe: pass
   lifecycle: promoted deferred needs-pair-a (conditional gain +0.208 with needs-pair-b)
 ```
+
+`sequence` runs the files in the order given, and its exit code reports
+where each artifact ended. Here both end committed, so it exits 0.
 
 The abstained artifact was not wrong. It was an interaction arriving
 before its partner. When the partner commits, the gate measures it
@@ -160,11 +168,25 @@ gateadapt sequence examples/mutations/conflict_a.yaml examples/mutations/conflic
     --probe examples/tasks_probe.jsonl --run examples/toy_agent.py:run
 ```
 
-Each is admitted (one commits, one scope-corrects), because each marginal
-is honestly positive. Then the pairwise probe on fresh items finds the
-joint well below the additive expectation and revokes both
-(`lifecycle: revoked conflict-a (interaction_conflict)` and the same for
-`conflict-b`).
+```
+conflict-a:
+verdict: commit
+  region: 48/48 items · paired diff +0.208 (se 0.059, p 0.0020) · wins 10 losses 0
+  95% CI: [+0.080, +0.332]
+  transfer probe: pass
+conflict-b:
+verdict: reject
+  region: 48/48 items · paired diff +0.208 (se 0.059, p 0.0020) · wins 10 losses 0
+  95% CI: [+0.080, +0.332]
+  caught by: transfer_probe (no_transfer: probe diff +0.000 on 48 items)
+```
+
+On top of `conflict-a`, `conflict-b` still gains on dev, but fresh items
+show nothing, so the transfer probe rejects it before it is committed.
+When a cancelling pair does get committed (for example, admitted without
+a probe deck), the G3 pairwise probe finds the joint below the additive
+expectation and revokes both (`lifecycle: revoked conflict-a
+(interaction_conflict)`).
 
 ### Live substrate (real LLM episodes)
 
@@ -187,42 +209,89 @@ gateadapt admit examples/mutations/strict_answers.yaml \
 
 ```
 verdict: abstain_with_record
-  region: 8/16 items · paired diff +0.500 (se 0.189, p 0.1250) · wins 4 losses 0
-  underpowered: have 8 in-scope · need ~2 more (at ±0.50)
+  region: 8/16 items · paired diff +0.625 (se 0.183, p 0.0625) · wins 5 losses 0
+  95% CI: [-0.027, +1.000]
+  underpowered: have 8 in-scope · need ~1 more decisive pair, best case at ±0.62
 ```
 
 That was a real run on nemotron-3-ultra-550b via NIM (key from
-`NVIDIA_API_KEY` or `--keyfile`), 16 API calls, about 35 seconds of wall
-time. The model's verbose "2 + 2 = 4" fails `exact_match("4")`. The
-output contract fixes 4 of the 8 answer items, which is too few
+`NVIDIA_API_KEY` or `GATEADAPT_NVAPI_KEYFILE`), 16 API calls, 36 seconds
+of wall time. The model's verbose "2 + 2 = 4" fails `exact_match("4")`.
+The output contract fixes 5 of the 8 answer items, which is still too few
 discordant pairs to commit. The episode cache keys each call by (task,
 config) fingerprint, so a rerun measures nothing twice. You can interrupt
-and resume freely.
+and resume freely; replaying this run from the cache took 0 seconds and
+printed the same verdict.
 
-Live runs on that model reached commit, scope_correct and
-abstain_with_record. Reject has only been shown on the toy agent.
+Temperature 0 is not bitwise deterministic on a hosted endpoint. The
+same mutation fixed 4 of 8 items on 2026-11-19 and 5 of 8 on 2026-11-21.
+That is why the gate pairs both arms on the same items and asks for
+discordant pairs, not a single lucky run.
+
+Every row below is a real v0.5 run on 2026-11-21 with the same model,
+temperature 0 and `--draws 1`, each mutation on a fresh ledger. Live runs
+reached all four verdicts.
 
 | live mutation | verdict | evidence |
 |---|---|---|
-| `strict_answers` | `abstain_with_record` | +0.500 on answers, 4 wins 0 losses, p=0.125 |
-| `refusal_contract_live` | `commit` | +1.000 on refusals, 8 wins 0 losses, p=0.0078, run on its own |
-| `live_unknown` | `abstain_with_record` | +0.000, the answer baseline was already 0/8 because strict_answers never committed |
-| `temp_tune` | `abstain_with_record` | +0.000 on 8 items, p=1.00, "need ~258 more" |
-| `context_only` | `scope_correct` | declared `all`, concentrated in `tags.type == "refusal"` (+0.500, 8 wins 0 losses) |
-| `brief_answer` | `commit` via **G2** | two LLM-minted rounds of 18 fresh items, +0.556 (p=0.0625) inconclusive, then +0.611 (p<0.0001) commit |
+| `strict_answers` | `abstain_with_record` | +0.625 on answers, 5 wins 0 losses, p=0.0625 |
+| `refusal_contract_live` | `commit` | +1.000 on refusals, 8 wins 0 losses, p=0.0078, transfer probe pass |
+| `single_word` | `commit` | +0.750 on answers, 6 wins 0 losses, p=0.031, transfer probe pass |
+| `context_only` | `scope_correct` | declared `all`, narrowed to `tags.type == "refusal"` (inside +1.000 on 8, outside +0.000 on 8) |
+| `refuse_if_unsure` | `scope_correct` | declared `all`, narrowed to `tags.type == "refusal"` the same way |
+| `temp_tune` | `abstain_with_record` | +0.000 on 8 items, 0 wins 0 losses |
+| `terse_check` | `abstain_with_record` | +0.000 on 8 items, 0 wins 0 losses |
+| `live_unknown` | `abstain_with_record` | +0.000 on its own, the verbose baseline already fails every answer item |
+| `brief_answer` | `commit` via **G2** | one round of 22 LLM-minted items, fresh test pool of 11 at +0.636, 7 wins 0 losses, p=0.0156 at α 0.025 |
+| sequence, then `live_unknown` | `reject` | stacked on committed `single_word`, −0.750, 0 wins 6 losses, p=0.031 |
 
-A G3 conditional retry has not yet been shown live.
+The sequence ran `refusal_contract_live`, `strict_answers`, `single_word`
+and `live_unknown` in that order. It committed, deferred, committed and
+rejected. When `single_word` committed, the deferred `strict_answers` was
+re-measured against it and stayed deferred. `gateadapt audit` on the
+probe deck then kept both commits, and `gateadapt status` rebuilt the same
+states from the ledger.
 
-The same gate was also run against a private corpus-QA harness
-(retrieval + LLM + rubric-scored episodes), where five artifact
-mutations all abstained on nemotron-3-ultra-550b — a ~0.79 base with no
-headroom — while on the smaller nemotron-3.5-lightning-30b prompt edits
-and extra retrieved docs trended −0.09…−0.13 and the gate again declined
-to certify. A zero-retrieval ablation produced the live `reject` at
-−0.714, 0-10, p<0.0001, and the live `commit` came from a
-cite-and-plain-prose contract at +0.258, 8-0, p=0.0012, probe pass, at
-temperature=0. Deterministic episodes are the eval's default;
-`GATEADAPT_LLM_TEMPERATURE` overrides.
+The G3 conditional promotion also runs live. `normalize_numbers` is a
+harness output stage that turns a one-word number reply ("Two") into
+digits ("2"). On the model's verbose answers it does nothing, so it
+abstains and waits on the deferred queue. `single_word_pair` makes the
+model answer in one word, and once it commits, the deferred artifact is
+re-measured against it and promoted.
+
+```bash
+gateadapt sequence \
+    examples/mutations/normalize_numbers.yaml \
+    examples/mutations/single_word_pair.yaml \
+    --config examples/config.yaml \
+    --tasks examples/tasks_live_pair_dev.jsonl \
+    --probe examples/tasks_live_pair_probe.jsonl \
+    --run examples/live_agent.py:run --draws 1
+```
+
+```
+normalize_numbers:
+verdict: abstain_with_record
+  region: 16/16 items · paired diff +0.000 (se 0.000, p 1.0000) · wins 0 losses 0
+  95% CI: [-0.154, +0.154]
+  underpowered: have 16 in-scope · need ~6 more decisive pairs, best case at ±0.05
+single_word_pair:
+verdict: commit
+  region: 16/16 items · paired diff +0.625 (se 0.125, p 0.0020) · wins 10 losses 0
+  95% CI: [+0.239, +0.901]
+  transfer probe: pass
+  lifecycle: promoted deferred normalize_numbers (conditional gain +0.250 with single_word_pair)
+```
+
+The +0.250 is the four small-number items out of 16 on the probe deck,
+the ones single-word mode writes as words. `gateadapt status` then
+reports `normalize_numbers conditional partner=single_word_pair`, so if
+`single_word_pair` is ever revoked, the orphan check revokes it too.
+NIM throttled this account below its nominal 40 rpm during these runs;
+`GATEADAPT_MAX_RPM` lowers the client's ceiling (12 was used here).
+
+Temperature 0 is the live example's default; `GATEADAPT_LLM_TEMPERATURE`
+overrides it.
 
 Episode caches are namespaced by ambient client params. The chain is
 `run.__qualname__` → `RunSurface.name` → cache key, and it covers model,
@@ -250,8 +319,8 @@ gateadapt status --ledger ledger.jsonl # lifecycle state of every artifact in th
 
 ## In your CI
 
-`admit` exits 0 on commit, scope-correct, and abstain, and 1 on reject.
-The exit code is the gate. The recipe for a harness repo is to have your
+`admit` exits 0 on commit or scope-correct, 1 on reject, and 3 on
+abstain. The exit code is the gate. The recipe for a harness repo is to have your
 PR workflow render the proposed harness edit as a mutation YAML (`patch:`
 holds the diff's effective-config change) and then run the measurement.
 The repo's `.github/workflows/gateadapt.yml` dogfoods exactly this
@@ -283,6 +352,7 @@ jobs:
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
+          set +e
           gateadapt admit mutations/${{ github.head_ref }}.yaml \
             --config harness/config.yaml \
             --tasks eval/dev.jsonl \
@@ -290,6 +360,10 @@ jobs:
             --reserve eval/reserve.jsonl \
             --run harness/agent.py:run \
             --draws 1 --ledger eval/ledger.jsonl --cache episodes.json
+          rc=$?
+          # abstain (3) is unknown: surface it without failing the build
+          if [ $rc -eq 3 ]; then echo "::warning::gateadapt abstained, not enough evidence"; exit 0; fi
+          exit $rc
 
       - name: Commit the ledger back
         if: always()
@@ -317,11 +391,12 @@ Notes that matter in CI.
 - **Stacking needs the ledger.** The committed set and pool budgets are
   loaded from `ledger.jsonl` on `admit`, so later mutations measure on
   top of earlier committed ones.
-- **Abstain is neutral by design.** It will not fail your pipeline; it
-  asks for more evidence. Wire `--reserve` for G2 synthesis if you want
-  abstains to try resolving themselves before giving up.
-- Exit semantics are `0` for commit / scope-correct / abstain and `1` for
-  reject.
+- **Abstain is unknown, not passed.** It exits 3, so a pipeline can tell
+  it apart from a commit. The recipe above turns it into a warning; pass
+  `--abstain-ok` to exit 0 instead. Wire `--reserve` for G2 synthesis if
+  you want abstains to try resolving themselves before giving up.
+- Exit semantics are `0` for commit / scope-correct, `1` for reject, `3`
+  for abstain.
 - **Fork PRs cannot push the ledger back.** `GITHUB_TOKEN` is read-only on
   forks. Run this recipe on same-repo branches, or have a maintainer run
   it for fork contributions.
@@ -414,16 +489,26 @@ not(tags.needs_refusal == true)
 tags.difficulty in ["easy", "medium"]
 ```
 
-## What's inside (v0.4)
+## What's inside (v0.5)
 
 - **G0.** Schema/scope validation, kind rules (stateful kinds must be
   global), held-out ID leakage. Rejects before a single episode runs.
-- **G1.** Paired measurement on the declared region only; z-test on the
-  paired diff, or the exact sign test when fewer than 8 discordant pairs
-  exist (the normal approximation is anti-conservative there); pre-COMMIT
-  **transfer probe** on fresh probe items; heterogeneity scan that
-  narrows a commit to the subregion carrying the effect
-  (`SCOPE-CORRECTED COMMIT`); `ABSTAIN` with a task-count estimate.
+- **Decks.** Task ids must be unique within each deck, and dev, probe,
+  audit and reserve must not share ids. The gate raises `ValueError`
+  otherwise. A repeated id would count one lucky draw many times, and a
+  shared id would let the probe re-test the dev gain. Generated items
+  whose id is already known are dropped.
+- **G1.** Paired measurement on the declared region only. Binary scores
+  decide by exact McNemar (the sign test on discordant pairs), which
+  holds its nominal size at any panel size. Continuous scores use the
+  paired z-test, falling back to the sign test below 8 discordant pairs.
+  Every verdict carries a 95% CI that agrees with the deciding test.
+  The pre-COMMIT **transfer probe** on fresh items rejects on significant
+  harm, or when the probe keeps significantly less than half of the dev
+  gain (`no_transfer`). The heterogeneity scan narrows a commit to a
+  subregion (`SCOPE-CORRECTED COMMIT`) only when inside beats outside
+  significantly, Bonferroni-corrected over the candidates.
+  `ABSTAIN` reports how much more evidence is needed.
 - **G2, direction-blind synthesis.** When the dev look can't resolve, the
   gate draws fresh items inside the discordant region. It sees only the
   scope predicate, never the mutation payload or which direction it
@@ -431,14 +516,16 @@ tags.difficulty in ["easy", "medium"]
   at its own alpha; a decisive round returns COMMIT/REJECT, three
   unresolved rounds return `ABSTAIN_WITH_RECORD`. The dev deck absorbs
   the fresh items (it is the only deck allowed to grow).
-- **Alpha-investing budget.** One wealth pool per mutation *family*
+- **Family look budget.** One wealth pool per mutation *family*
   (`--wealth`, `--looks`); mutations without a declared `family:` each
   get their own pool, so cross-mutation control exists only where you
   declare it. The dev measurement is look 1, synthesis rounds are the
   rest, each priced at `wealth/looks`. Decided looks refund their share;
   unresolved looks forfeit it, so a family that churns inconclusively
   drains its own budget without taxing the gate. Pool state persists in
-  the ledger, so a drained family stays drained across processes.
+  the ledger, so a drained family stays drained across processes. This is
+  not alpha-investing or SAFFRON. Its guarantee is the bound in
+  "Assumptions and limits".
 - **G3, lifecycle.** After every commit, the pairwise interaction probe
   runs on the fresh deck with four arms per item (base, partner, solo,
   joint) at one draw slot, with the partner's own marginal subtracted.
@@ -454,8 +541,10 @@ tags.difficulty in ["easy", "medium"]
   every commit re-audits on the new probe reserve, measured harm revokes,
   and starved regions keep but record.
 - **Lifecycle (re-audit).** `gate.audit()` / `gateadapt audit`
-  re-measures each committed mutation's marginal effect and revokes
-  measured harm.
+  re-measures each committed mutation's marginal effect and revokes only
+  significant harm (a mean loss of at least 0.01 with p < alpha). In
+  simulation a no-op change is revoked about 1% of the time, down from
+  31% under the old rule.
 - **Episode cache.** `run` results keyed by (run-name, task, config); the
   paired slot design makes repeat measurements free and deterministic.
 - **ledger.jsonl.** Append-only verdict/revoke log; `committed_from_ledger`
@@ -476,17 +565,19 @@ tags.difficulty in ["easy", "medium"]
 - **`gateadapt replay`.** Zero-compute AutoHarness history replay on
   bundled panels.
 
-## Exit codes (`admit`)
+## Exit codes (`admit`, `sequence`)
 
-`0` for commit / scope-corrected / abstain, `1` for reject. Abstain is
-neutral by design; in CI it should not fail the build.
+`0` for commit / scope-corrected, `1` for reject, `3` for abstain (`0`
+with `--abstain-ok`). `sequence` reports where each artifact ended, so a
+promoted abstain counts as passed and a revoked commit as failed.
 
 ## Honesty notes
 
 - The scope is executable and decides the measurement region, so a
   mutation cannot claim the world and prove a corner.
-- Probe items are fresh. A change that memorizes dev-task IDs is caught
-  by the transfer probe even though its dev numbers look great.
+- Probe items are fresh, and the gate refuses decks that share ids. A
+  change that memorizes dev-task IDs scores nothing on the probe, and the
+  transfer test rejects it even though its dev numbers look great.
 - Synthesis is direction-blind. The item generator sees the discordant
   region's predicate, never the payload or whether the diff ran positive,
   so G2 cannot be gamed by telling the forge what to mint.
@@ -503,7 +594,7 @@ neutral by design; in CI it should not fail the build.
 
 - **`run` must return scores in [0, 1].** `RunSurface.draw` raises
   `ValueError` otherwise. The interaction shortfall caps the additive
-  expectation at 1.0, and the harm floor (`0.05`/`0.01`) is absolute, so
+  expectation at 1.0, and the harm floor (`0.01`) is absolute, so
   a scorer returning raw counts would produce silent nonsense.
 - **`conflict_min = 0.15` is tuned on fixtures.** It sits between
   saturation residual (~0.10 in the demo worlds) and real cancellation

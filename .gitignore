@@ -10,3 +10,8 @@ ledger.jsonl
 live_ledger.jsonl
 episodes.json
 live_episodes.json
+
+# API keys, never commit
+nvapi_key
+*_key
+.coverage

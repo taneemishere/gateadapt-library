@@ -66,9 +66,11 @@ def test_memoize_dev_rejects_via_probe():
     assert d.detail.get("caught_by") == "transfer_probe"
 
 
-def test_answer_lift_scope_corrects_via_synthesis():
+def test_answer_lift_commits_via_synthesis():
+    """The lift is uniform across answer items, so no subregion beats the
+    rest significantly and the commit keeps the declared scope."""
     d = _admit(_gate(reserve=True, items_per_round=96), "answer_lift")
-    assert d.verdict == Verdict.SCOPE_CORRECT
+    assert d.verdict == Verdict.COMMIT
     assert d.detail["synthesis_rounds"][-1]["verdict"] == "commit"
 
 
@@ -87,9 +89,45 @@ def test_pair_promotion(a, b, expected_a, expected_b):
     assert promoted and promoted[0]["artifact_id"] == "needs-pair-a"
 
 
-def test_conflict_pair_both_revoked():
+def test_conflict_b_caught_by_transfer_probe():
     gate = _gate()
-    _admit(gate, "conflict_a")
+    assert _admit(gate, "conflict_a").verdict == Verdict.COMMIT
     d2 = _admit(gate, "conflict_b")
-    revokes = {e["artifact_id"] for e in d2.detail["lifecycle"] if e["event"] == "revoke"}
-    assert revokes == {"conflict-a", "conflict-b"}
+    assert d2.verdict == Verdict.REJECT
+    assert d2.detail["probe"]["reason"] == "no_transfer"
+
+
+TOY = [
+    "--config", str(EX / "config.yaml"),
+    "--tasks", str(EX / "tasks_dev.jsonl"),
+    "--probe", str(EX / "tasks_probe.jsonl"),
+    "--run", str(EX / "toy_agent.py") + ":run",
+]
+RESERVE = ["--reserve", str(EX / "tasks_reserve.jsonl")]
+M = lambda n: str(EX / "mutations" / f"{n}.yaml")
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["admit", M("refusal_contract"), *TOY],
+        ["admit", M("refusal_contract"), *TOY, *RESERVE],
+        ["admit", M("answer_lift"), *TOY, *RESERVE, "--items-per-round", "96"],
+        ["sequence", M("needs_pair_a"), M("needs_pair_b"), *TOY],
+        ["sequence", M("conflict_a"), M("conflict_b"), *TOY],
+    ],
+    ids=["quickstart", "reserve", "answer_lift", "needs_pair", "conflict"],
+)
+def test_readme_output_blocks_match_cli(argv, capsys):
+    """Each demo's printed output must appear verbatim, as one contiguous
+    block, in the README. Inline `# ...` annotations are ignored."""
+    from gateadapt.cli import main
+
+    main(argv)
+    out = capsys.readouterr().out.rstrip("\n").splitlines()
+    readme = [
+        ln.split("        #")[0].rstrip()
+        for ln in (EX.parent / "README.md").read_text().splitlines()
+    ]
+    starts = [i for i, ln in enumerate(readme) if ln == out[0]]
+    assert any(readme[i : i + len(out)] == out for i in starts), "\n".join(out)

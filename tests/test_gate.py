@@ -108,14 +108,18 @@ class TestAdmit:
         assert len(same_id) == 1
         assert same_id[0].scope_ast == ("all",)
 
-    def test_harm_sign_branch_needs_magnitude(self):
-        """Consistent direction without size is not harm: a near-inert
-        effect can't convict a mutation."""
+    def test_harm_needs_magnitude_and_significance(self):
+        """Harm needs a material mean loss AND a significant p: direction
+        without size, or size without evidence, can't convict."""
         from gateadapt.gate import _harm
         from gateadapt.stats import PairedResult
 
-        assert not _harm(PairedResult(4, 0, 4, -0.005, 0.001, []))
-        assert _harm(PairedResult(4, 0, 4, -0.02, 0.005, []))
+        # significant but near-inert
+        assert not _harm(PairedResult(8, 0, 8, -0.005, 0.001, []), 0.05)
+        # material but only 0-4 (sign p 0.125), a noisy dip
+        assert not _harm(PairedResult(4, 0, 4, -0.25, 0.1, []), 0.05)
+        # material and significant (0-8, sign p 0.0078)
+        assert _harm(PairedResult(8, 0, 8, -0.02, 0.005, []), 0.05)
 
     def test_transfer_probe_catches_shortcut(self, world):
         dev, probe, _ = world

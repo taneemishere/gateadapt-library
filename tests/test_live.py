@@ -106,6 +106,24 @@ class TestChatClient:
             time.sleep = orig_sleep
         assert c.opener.calls == 3
 
+    def test_retry_is_reported_on_stderr(self, capsys, monkeypatch):
+        """A stalled provider must not look like a hung process."""
+
+        class Once:
+            calls = 0
+
+            def __call__(self, request, timeout=None):
+                Once.calls += 1
+                if Once.calls == 1:
+                    raise OSError("timed out")
+                return FakeHTTPResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+        c = ChatClient("k", "m", "http://x", opener=Once(), retries=3)
+        assert c.chat([{"role": "user", "content": "x"}]) == "ok"
+        err = capsys.readouterr().err
+        assert "timed out" in err and "retry 1/2 in 15s" in err
+
     def test_permanent_4xx_no_retry(self):
         class Fails:
             def __init__(self):
@@ -300,3 +318,16 @@ class TestTransient:
         assert transient_error(RuntimeError("HTTP 429 rate limited"))
         assert transient_error(RuntimeError("HTTP 503 down"))
         assert not transient_error(RuntimeError("HTTP 400 bad"))
+
+
+def test_live_run_postprocess_runs_before_scoring():
+    class Echo:
+        def chat(self, messages, **kw):
+            return "Two"
+
+    t = Task(id="n", tags={}, data={"question": "1+1?", "gold": "2"})
+    run = live_run(
+        Echo(), exact_match(), postprocess=lambda text, cfg: "2" if cfg.get("fix") else text
+    )
+    assert run(t, {}) == 0.0
+    assert run(t, {"fix": True}) == 1.0

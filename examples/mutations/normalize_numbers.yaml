@@ -1,0 +1,6 @@
+id: normalize_numbers
+kind: prompt_patch
+scope: 'tags.type == "answer"'
+family: pair-demo
+patch:
+  normalize_numbers: true

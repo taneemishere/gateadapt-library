@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -189,7 +190,14 @@ class ChatClient:
                 last = e
                 if not transient_error(e) or attempt == self.retries - 1:
                     raise
-                time.sleep(min(120, 15 * (2**attempt)))
+                wait = min(120, 15 * (2**attempt))
+                # a stalled provider otherwise looks like a hung process
+                print(
+                    f"{self.label}: {e} · retry {attempt + 1}/{self.retries - 1} in {wait}s",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(wait)
         raise last  # type: ignore[misc]
 
 

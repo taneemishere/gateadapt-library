@@ -24,7 +24,7 @@ import re
 from typing import Any, Callable
 
 from .cache import EpisodeCache
-from .decks import Deck, DeckRole
+from .decks import Deck, DeckRole, check_disjoint, check_unique_ids
 from .ledger import (
     append_event,
     committed_from_ledger,
@@ -50,6 +50,8 @@ from .stats import (
     eval_conditional,
     eval_pair,
     fisher_p,
+    below_target_p,
+    gap_p,
     sign_needed,
     sign_test_p,
     tasks_needed,
@@ -57,8 +59,10 @@ from .stats import (
 from .surface import RunSurface
 
 _EPS = 1e-6
-_REVOKE_EPS = 0.05
 _HARM_FLOOR = 0.01
+# the transfer probe expects fresh items to keep at least this share of the
+# dev gain; the dev estimate is winner's-curse inflated, so not all of it
+_TRANSFER_RETENTION = 0.5
 _SIGN_TAIL = 0.20
 _CONCENTRATION_FLOOR = 0.10
 _MAX_DEFERRED_RETRIES = 4
@@ -104,15 +108,12 @@ def g0_check(mutation: Mutation, spec: FeatureSpec, dev_ids: set[str]) -> list[s
     return violations
 
 
-def _harm(measure: PairedResult) -> bool:
-    """Harm rule shared by the transfer probe and re-audit. The sign branch
-    also demands a mean loss past _HARM_FLOOR, consistent direction alone
-    must not convict a near-inert effect."""
-    return measure.diff <= -_REVOKE_EPS or (
-        measure.diff <= -_HARM_FLOOR
-        and measure.losses > measure.wins
-        and sign_test_p(measure.wins, measure.losses) < _SIGN_TAIL
-    )
+def _harm(measure: PairedResult, alpha: float) -> bool:
+    """Harm rule shared by the transfer probe and re-audit: a mean loss past
+    _HARM_FLOOR that is also significant at `alpha` (the same p the gate
+    admits with, sign test at small counts). A noisy dip on a healthy
+    change is not evidence of harm and must not revoke it."""
+    return measure.diff <= -_HARM_FLOOR and measure.p < alpha
 
 
 class Gate:
@@ -148,6 +149,7 @@ class Gate:
         )
         self._reserve = list(reserve) if reserve is not None else None
         self._generate = generate
+        self._check_decks()
         all_items = list(self.dev.items)
         for d in (self.probe, self.audit_deck):
             if d:
@@ -201,6 +203,24 @@ class Gate:
             self.revoked = lc["revoked"]
             self._rejected = lc["rejected"]
         self._epoch = 0
+
+    def _check_decks(self) -> None:
+        decks = {
+            "dev": self.dev.items,
+            "probe": self.probe.items if self.probe else [],
+            "audit": self.audit_deck.items if self.audit_deck else [],
+            "reserve": self._reserve or [],
+        }
+        for label, items in decks.items():
+            check_unique_ids(items, f"{label} deck")
+        check_disjoint(decks)
+
+    def _known_ids(self) -> set[str]:
+        ids = {t.id for t in self.dev.items}
+        for d in (self.probe, self.audit_deck):
+            if d:
+                ids |= {t.id for t in d.items}
+        return ids
 
     def _admit_committed(self, mutation: Mutation) -> None:
         """Append to the committed set, replacing any prior same-id entry.
@@ -313,15 +333,23 @@ class Gate:
         candidate: Mutation,
         scope_fn: Callable[[Task], bool],
         rng: random.Random,
-    ) -> tuple[bool, PairedResult | None]:
+        dev_diff: float,
+    ) -> tuple[bool, PairedResult | None, str | None]:
         """Pre-COMMIT check on fresh probe items. Pass when there is no probe
-        deck or nothing to measure; fail on measured harm."""
+        deck or nothing to measure. Fail on significant harm, or when the
+        probe sits significantly below _TRANSFER_RETENTION of the dev gain,
+        a gain that lives only on dev items (memorized ids, overfit
+        phrasing) is not a gain."""
         if self.probe is None:
-            return True, None
+            return True, None, None
         m = self._region_measure(self.probe.items, base_config, committed, candidate, scope_fn, rng)
         if m.n < 4:
-            return True, m
-        return (not _harm(m)), m
+            return True, m, None
+        if _harm(m, self.alpha):
+            return False, m, "harm"
+        if dev_diff > 0 and below_target_p(m, _TRANSFER_RETENTION * dev_diff) < self.alpha:
+            return False, m, "no_transfer"
+        return True, m, None
 
     # ---- scope correction ----------------------------------------------------
 
@@ -365,9 +393,12 @@ class Gate:
         committed: list[Mutation],
         candidate: Mutation,
         rng: random.Random,
+        alpha: float,
     ) -> dict[str, Any]:
         """Measure effect inside vs outside each refinement; keep refinements
-        that concentrate the effect (inside positive, outside ~flat)."""
+        that concentrate the effect: inside positive, outside ~flat, and
+        inside significantly above outside at `alpha`. Without that last
+        test a uniform gain narrows whenever noise dips one side."""
         region = [t for t in items if candidate.fires(t)]
         # a callable scope has no AST to refine, and a tag-refined "inside"
         # arm would measure tasks the callable never fires on
@@ -394,7 +425,11 @@ class Gate:
             # (< CONCENTRATION_FLOOR). A sub-floor outside benefit doesn't
             # justify forfeiting the declared scope's claim; significance
             # of the inside effect is still enforced by Bonferroni below.
-            concentrated = m_in.diff > _EPS and m_out.diff <= _CONCENTRATION_FLOOR
+            concentrated = (
+                m_in.diff > _EPS
+                and m_out.diff <= _CONCENTRATION_FLOOR
+                and gap_p(m_in, m_out) < alpha
+            )
             if concentrated:
                 out.append({"cond": cond, "in": m_in, "out": m_out})
         out.sort(key=lambda c: c["in"].p)
@@ -417,6 +452,10 @@ class Gate:
             m_in = cand["in"]
             if m_in.p >= alpha / n_tested:
                 continue
+            # narrowing claims the effect lives inside and not outside, so
+            # the inside-vs-outside difference carries the same correction
+            if gap_p(m_in, cand["out"]) >= alpha / n_tested:
+                continue
             narrowed = Mutation(
                 id=candidate.id,
                 kind=candidate.kind,
@@ -434,8 +473,8 @@ class Gate:
                     self.probe.items, base_config, committed, narrowed, narrowed.fires, rng
                 )
                 probe_p = pm.p
-                ok, _ = self._transfer_probe(
-                    base_config, committed, narrowed, narrowed.fires, rng
+                ok, _, _ = self._transfer_probe(
+                    base_config, committed, narrowed, narrowed.fires, rng, m_in.diff
                 )
                 probe_ok = ok and (pm.n < 4 or fisher_p(m_in.p, pm.p) < alpha / n_tested)
             if probe_ok:
@@ -460,7 +499,7 @@ class Gate:
         Callable scopes can't be refined (nothing to introspect)."""
         if candidate.scope_fn is not None:
             return None
-        scan = self._scope_scan(self.dev.items, base_config, committed, candidate, rng)
+        scan = self._scope_scan(self.dev.items, base_config, committed, candidate, rng, alpha)
         return self._accept_correction(scan, base_config, committed, candidate, alpha, rng)
 
     # ---- G2: direction-blind synthesis ----------------------------------------
@@ -473,8 +512,16 @@ class Gate:
         replacement)."""
         if self._generate is not None:
             # re-filter through the region predicate, since the generator sees the
-            # discordant region, but only in-region items may join the pool
-            return [t for t in self._generate(region_fn, n, rng) if region_fn(t)]
+            # discordant region, but only in-region items may join the pool.
+            # A minted id that repeats a known item (or itself) is dropped, it
+            # would be the same item measured twice
+            known = self._known_ids()
+            fresh: list[Task] = []
+            for t in self._generate(region_fn, n, rng):
+                if region_fn(t) and t.id not in known:
+                    known.add(t.id)
+                    fresh.append(t)
+            return fresh
         if self._reserve is None:
             return []
         rng.shuffle(self._reserve)
@@ -713,6 +760,12 @@ class Gate:
                     promoted = True
                     break
             if not promoted:
+                if probed and self.ledger_path:
+                    # the retry cap must hold across processes, or every CI
+                    # run would hand a deferred artifact a fresh budget
+                    append_event(
+                        self.ledger_path, {"event": "deferred_retry", "artifact_id": m.id}
+                    )
                 still.append([m, retries + (1 if probed else 0)])
         self.deferred = still
         return events
@@ -735,6 +788,7 @@ class Gate:
             self.dev = Deck(DeckRole.DEV, list(dev))
         if probe is not None:
             self.probe = Deck(DeckRole.PROBE, list(probe))
+        self._check_decks()
 
     def advance_epoch(
         self,
@@ -782,6 +836,7 @@ class Gate:
             "diff": m.diff,
             "diff_se": m.diff_se,
             "p": m.p,
+            "ci95": list(m.ci()),
             "wins": m.wins,
             "losses": m.losses,
             "base_mean": m.base_mean,
@@ -797,18 +852,12 @@ class Gate:
             if corrected is not None:
                 self._refund(pool, mutation.family_name, alpha1)
                 return self._scope_corrected(mutation, corrected, base_detail, rng, base_config)
-            ok, probe_m = self._transfer_probe(
-                base_config, self.committed, mutation, mutation.fires, rng
+            ok, probe_m, why = self._transfer_probe(
+                base_config, self.committed, mutation, mutation.fires, rng, m.diff
             )
             if not ok:
                 self._refund(pool, mutation.family_name, alpha1)
-                base_detail["caught_by"] = "transfer_probe"
-                base_detail["probe"] = {
-                    "n": probe_m.n,
-                    "diff": probe_m.diff,
-                    "wins": probe_m.wins,
-                    "losses": probe_m.losses,
-                }
+                self._note_probe_failure(base_detail, probe_m, why)
                 return self._record(mutation, Verdict.REJECT, base_detail, rng)
             self._refund(pool, mutation.family_name, alpha1)
             base_detail["transfer_probe"] = (
@@ -826,7 +875,7 @@ class Gate:
 
         # inconclusive, scope scan first (rescue a heterogeneous subregion),
         # then direction-blind synthesis if an item source exists.
-        scan = self._scope_scan(self.dev.items, base_config, self.committed, mutation, rng)
+        scan = self._scope_scan(self.dev.items, base_config, self.committed, mutation, rng, alpha1)
         corrected = self._accept_correction(scan, base_config, self.committed, mutation, alpha1, rng)
         if corrected is not None:
             self._refund(pool, mutation.family_name, alpha1)
@@ -863,6 +912,7 @@ class Gate:
                         "diff": m2.diff,
                         "diff_se": m2.diff_se,
                         "p": m2.p,
+                        "ci95": list(m2.ci()),
                         "wins": m2.wins,
                         "losses": m2.losses,
                         "base_mean": m2.base_mean,
@@ -870,8 +920,8 @@ class Gate:
                     }
                 )
             if v2 == Verdict.COMMIT:
-                ok, probe_m = self._transfer_probe(
-                    base_config, self.committed, resolved, resolved.fires, rng
+                ok, probe_m, why = self._transfer_probe(
+                    base_config, self.committed, resolved, resolved.fires, rng, m2.diff
                 )
                 if ok:
                     if resolved is not mutation:
@@ -884,7 +934,7 @@ class Gate:
                             base_config,
                         )
                     return self._commit(mutation, base_detail, rng, base_config)
-                base_detail["caught_by"] = "transfer_probe"
+                self._note_probe_failure(base_detail, probe_m, why)
                 return self._record(mutation, Verdict.REJECT, base_detail, rng)
             if v2 == Verdict.REJECT:
                 return self._record(mutation, Verdict.REJECT, base_detail, rng)
@@ -892,19 +942,26 @@ class Gate:
         if m.decides_by_sign_test:
             # the deciding statistic here is the exact sign test, so the
             # honest hint is extra decisive pairs at the look's alpha, not
-            # a normal-approximation task count
+            # a normal-approximation task count. It is a best case: every
+            # new discordant pair must land on the majority side
             need = sign_needed(m.wins, m.losses, alpha=alpha1)
+            unit = "decisive_pairs"
         else:
             need = tasks_needed(
                 effect=max(abs(m.diff), 0.05),
                 base=max(m.base_mean, 0.02),
                 alpha=self.alpha,
             ) - m.n
+            unit = "items"
         base_detail["needed"] = {
             "have": m.n,
             "need": max(need, 0),
+            "unit": unit,
             "at_effect": max(abs(m.diff), 0.05),
         }
+        if m.n < self.min_n:
+            # below min_n nothing can decide, whatever the statistic says
+            base_detail["needed"]["min_items"] = self.min_n - m.n
         base_detail["reason"] = (
             "inconclusive" if m.n >= self.min_n else "region_too_small"
         )
@@ -917,10 +974,25 @@ class Gate:
 
     # ---- verdict writers ------------------------------------------------------
 
+    @staticmethod
+    def _note_probe_failure(detail: dict, probe_m: PairedResult, why: str | None) -> None:
+        detail["caught_by"] = "transfer_probe"
+        detail["probe"] = {
+            "n": probe_m.n,
+            "diff": probe_m.diff,
+            "wins": probe_m.wins,
+            "losses": probe_m.losses,
+            "p": probe_m.p,
+            "reason": why,
+        }
+
     def _commit(self, mutation: Mutation, detail: dict, rng: random.Random, base_config: dict) -> Decision:
         self._admit_committed(mutation)
         decision = self._record(mutation, Verdict.COMMIT, detail, rng)
         events = self._after_commit(base_config, rng)
+        # _record flushed before the lifecycle probe ran; its episodes must
+        # persist too, or every rerun re-bills the G3 measurements
+        self.surface.flush()
         if events:
             decision.detail["lifecycle"] = events
         return decision
@@ -937,6 +1009,7 @@ class Gate:
         }
         decision = self._record(narrowed, Verdict.SCOPE_CORRECT, detail, rng, original=mutation)
         events = self._after_commit(base_config, rng)
+        self.surface.flush()
         if events:
             decision.detail["lifecycle"] = events
         return decision
@@ -987,11 +1060,12 @@ class Gate:
                 "diff": res.diff,
                 "wins": res.wins,
                 "losses": res.losses,
-                "revoke_rule": f"diff <= -{_REVOKE_EPS} or sign-tail < {_SIGN_TAIL}",
+                "p": res.p,
+                "revoke_rule": f"diff <= -{_HARM_FLOOR} and p < {self.alpha}",
             }
             if res.n < self.min_n:
                 detail["status"] = "kept_scope_starved"
-            elif _harm(res):
+            elif _harm(res, self.alpha):
                 self._revoke(m, "drift_harm", {"diff": res.diff})
                 detail["status"] = "revoked"
             else:

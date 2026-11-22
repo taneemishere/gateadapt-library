@@ -1,4 +1,4 @@
-"""G2 direction-blind synthesis: shared SAFFRON budget, cumulative test pool,
+"""G2 direction-blind synthesis: shared family budget, cumulative test pool,
 reserve deck / generator item sources, probe still gates the final commit."""
 
 import random

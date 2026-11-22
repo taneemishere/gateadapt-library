@@ -1,0 +1,16 @@
+{"id": "pp-0", "tags": {"type": "answer", "kind": "word"}, "question": "What is the capital of Japan?", "context": "", "gold": "Tokyo"}
+{"id": "pp-1", "tags": {"type": "answer", "kind": "word"}, "question": "Which organ pumps blood through the body?", "context": "", "gold": "Heart"}
+{"id": "pp-2", "tags": {"type": "answer", "kind": "word"}, "question": "What is the closest star to Earth?", "context": "", "gold": "Sun"}
+{"id": "pp-3", "tags": {"type": "answer", "kind": "word"}, "question": "What language is mainly spoken in Brazil?", "context": "", "gold": "Portuguese"}
+{"id": "pp-4", "tags": {"type": "answer", "kind": "word"}, "question": "Which continent is Egypt in?", "context": "", "gold": "Africa"}
+{"id": "pp-5", "tags": {"type": "answer", "kind": "word"}, "question": "What is the hardest natural substance?", "context": "", "gold": "Diamond"}
+{"id": "pp-6", "tags": {"type": "answer", "kind": "word"}, "question": "Which bird is a symbol of peace?", "context": "", "gold": "Dove"}
+{"id": "pp-7", "tags": {"type": "answer", "kind": "word"}, "question": "What is the capital of Italy?", "context": "", "gold": "Rome"}
+{"id": "pp-8", "tags": {"type": "answer", "kind": "number"}, "question": "How many strings does a standard violin have?", "context": "", "gold": "4"}
+{"id": "pp-9", "tags": {"type": "answer", "kind": "number"}, "question": "How many sides does a triangle have?", "context": "", "gold": "3"}
+{"id": "pp-10", "tags": {"type": "answer", "kind": "number"}, "question": "How many wheels does a bicycle have?", "context": "", "gold": "2"}
+{"id": "pp-11", "tags": {"type": "answer", "kind": "number"}, "question": "How many hearts does an octopus have?", "context": "", "gold": "3"}
+{"id": "pp-12", "tags": {"type": "answer", "kind": "number"}, "question": "How many minutes are in an hour?", "context": "", "gold": "60"}
+{"id": "pp-13", "tags": {"type": "answer", "kind": "number"}, "question": "How many hours are in a day?", "context": "", "gold": "24"}
+{"id": "pp-14", "tags": {"type": "answer", "kind": "number"}, "question": "How many states are in the USA?", "context": "", "gold": "50"}
+{"id": "pp-15", "tags": {"type": "answer", "kind": "number"}, "question": "How many bones are in the adult human body?", "context": "", "gold": "206"}

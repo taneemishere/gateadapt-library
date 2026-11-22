@@ -1,0 +1,16 @@
+{"id": "pd-0", "tags": {"type": "answer", "kind": "word"}, "question": "What is the capital of France?", "context": "", "gold": "Paris"}
+{"id": "pd-1", "tags": {"type": "answer", "kind": "word"}, "question": "What color is the sky on a clear day?", "context": "", "gold": "Blue"}
+{"id": "pd-2", "tags": {"type": "answer", "kind": "word"}, "question": "Which planet is known as the Red Planet?", "context": "", "gold": "Mars"}
+{"id": "pd-3", "tags": {"type": "answer", "kind": "word"}, "question": "What is frozen water called?", "context": "", "gold": "Ice"}
+{"id": "pd-4", "tags": {"type": "answer", "kind": "word"}, "question": "What is the largest ocean on Earth?", "context": "", "gold": "Pacific"}
+{"id": "pd-5", "tags": {"type": "answer", "kind": "word"}, "question": "What metal is liquid at room temperature?", "context": "", "gold": "Mercury"}
+{"id": "pd-6", "tags": {"type": "answer", "kind": "word"}, "question": "Which animal is known as the king of the jungle?", "context": "", "gold": "Lion"}
+{"id": "pd-7", "tags": {"type": "answer", "kind": "word"}, "question": "What do bees make?", "context": "", "gold": "Honey"}
+{"id": "pd-8", "tags": {"type": "answer", "kind": "number"}, "question": "How many legs does a spider have?", "context": "", "gold": "8"}
+{"id": "pd-9", "tags": {"type": "answer", "kind": "number"}, "question": "How many continents are there?", "context": "", "gold": "7"}
+{"id": "pd-10", "tags": {"type": "answer", "kind": "number"}, "question": "How many sides does a hexagon have?", "context": "", "gold": "6"}
+{"id": "pd-11", "tags": {"type": "answer", "kind": "number"}, "question": "How many days are in a week?", "context": "", "gold": "7"}
+{"id": "pd-12", "tags": {"type": "answer", "kind": "number"}, "question": "How many days are in a non-leap year?", "context": "", "gold": "365"}
+{"id": "pd-13", "tags": {"type": "answer", "kind": "number"}, "question": "How many weeks are in a year?", "context": "", "gold": "52"}
+{"id": "pd-14", "tags": {"type": "answer", "kind": "number"}, "question": "How many keys are on a standard piano?", "context": "", "gold": "88"}
+{"id": "pd-15", "tags": {"type": "answer", "kind": "number"}, "question": "How many squares are on a chessboard?", "context": "", "gold": "64"}

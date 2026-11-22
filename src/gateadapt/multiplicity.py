@@ -1,18 +1,17 @@
-"""Alpha-investing-style wealth pool.
+"""Per-family look budget with refund-on-decision.
 
-Every gated look spends wealth from a shared per-family pool priced in equal
-quarters (wealth / looks per look). Wealth is the only thing that gates: a
-look runs only while a full quarter remains, a decision, COMMIT or REJECT,
-refunds its spent alpha, and an unresolved look forfeits it. That makes
-indecision costly: a family of decisive members keeps testing (each decided
-look returns its quarter), while a family that churns inconclusively drains
-its budget in four unresolved looks. Total wealth *spent* stays bounded at
-the pool size regardless of test count, the alpha-investing property that
-keeps sequential peeping honest.
+Every gated look spends from a shared per-family pool priced in equal
+shares (wealth / looks per look). A look runs only while a full share
+remains; a decided look (COMMIT or REJECT) refunds its share and an
+unresolved look forfeits it, so a family that churns inconclusively drains
+its budget in `looks` unresolved looks.
 
-This is alpha investing in spirit, not SAFFRON: SAFFRON adds adaptive
-discarding and earns wealth back on rejections, neither of which happens
-here.
+This is not alpha-investing (Foster and Stine) and not SAFFRON: neither
+the payout rule nor adaptive discarding is implemented. Its guarantee is
+the one it can prove. A null look decides with probability at most
+alpha = wealth/looks, and spent wealth only grows on unresolved looks, so a
+family's expected number of false decisions satisfies
+E[D] <= looks * alpha / (1 - alpha), given valid conditional p-values.
 """
 
 from __future__ import annotations
@@ -62,5 +61,15 @@ class AlphaPool:
         self._spent = max(0.0, self._spent - alpha)
 
 
-# kept for backwards compatibility with the pre-rename name
-SaffronPool = AlphaPool
+def __getattr__(name: str):
+    # the pre-rename alias still imports, with a warning, until 1.0
+    if name == "SaffronPool":
+        import warnings
+
+        warnings.warn(
+            "SaffronPool is deprecated, use AlphaPool (the pool is not SAFFRON)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return AlphaPool
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

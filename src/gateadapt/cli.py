@@ -1,7 +1,8 @@
 """gateadapt CLI: admit / audit / power / replay.
 
-Exit codes for `admit`: 0 COMMIT or SCOPE_CORRECT · 1 REJECT · 0 ABSTAIN
-(abstain is neutral, evidence, not failure).
+Exit codes for `admit` and `sequence`: 0 COMMIT or SCOPE_CORRECT · 1 REJECT
+· 3 ABSTAIN_WITH_RECORD (unknown is not passed; `--abstain-ok` maps it to 0).
+2 stays argparse's usage error.
 """
 
 from __future__ import annotations
@@ -17,9 +18,11 @@ from typing import Any
 from .decks import Deck, DeckRole, load_tasks
 from .gate import Gate
 from .ledger import read_ledger
-from .models import Mutation, Verdict
+from .models import LifecycleState, Mutation, Verdict
 from .replay import format_replay, replay
 from .stats import tasks_needed
+
+EXIT_PASS, EXIT_REJECT, EXIT_ABSTAIN = 0, 1, 3
 
 
 def _load_mapping(path: str) -> dict[str, Any]:
@@ -80,11 +83,21 @@ def _print_verdict(d) -> None:
     det = d.detail
     print(f"verdict: {d.verdict.value}")
     if "region_n" in det:
+        # a synthesis verdict rests on the fresh test pool, not the dev deck,
+        # so "n/dev_n" would read as a share of dev items it isn't
+        where = (
+            f"fresh test pool: {det['region_n']} items"
+            if det.get("decided_by") == "synthesis_pool"
+            else f"region: {det['region_n']}/{det['dev_n']} items"
+        )
         print(
-            f"  region: {det['region_n']}/{det['dev_n']} items · "
+            f"  {where} · "
             f"paired diff {det['diff']:+.3f} (se {det['diff_se']:.3f}, p {det['p']:.4f}) · "
             f"wins {det['wins']} losses {det['losses']}"
         )
+        if "ci95" in det:
+            lo, hi = det["ci95"]
+            print(f"  95% CI: [{lo:+.3f}, {hi:+.3f}]")
     if "heterogeneity" in det:
         h = det["heterogeneity"]
         print(
@@ -101,14 +114,27 @@ def _print_verdict(d) -> None:
                     f"  synthesis round {r['k']}: drew {r['items_drawn']} fresh · "
                     f"test pool {r['test_n']} · diff {r['diff']:+.3f} (p {r['p']:.4f} @ α {r['alpha']:.3f}) · {r['verdict']}"
                 )
-    if det.get("needed", {}).get("need"):
-        n = det["needed"]
-        print(f"  underpowered: have {n['have']} in-scope · need ~{n['need']} more (at ±{n['at_effect']:.2f})")
+    n = det.get("needed") or {}
+    if n.get("need") or n.get("min_items"):
+        parts = []
+        if n.get("min_items"):
+            parts.append(f"at least {n['min_items']} more items (min_n)")
+        if n.get("need"):
+            plural = "" if n["need"] == 1 else "s"
+            what = (
+                f"decisive pair{plural}, best case"
+                if n.get("unit") == "decisive_pairs"
+                else f"item{plural}"
+            )
+            parts.append(f"~{n['need']} more {what} at ±{n['at_effect']:.2f}")
+        print(f"  underpowered: have {n['have']} in-scope · need " + " · ".join(parts))
     if "g0_violations" in det:
         for v in det["g0_violations"]:
             print(f"  g0: {v}")
     if "caught_by" in det:
-        print(f"  caught by: {det['caught_by']}")
+        pr = det.get("probe")
+        why = f" ({pr['reason']}: probe diff {pr['diff']:+.3f} on {pr['n']} items)" if pr and pr.get("reason") else ""
+        print(f"  caught by: {det['caught_by']}{why}")
     if "transfer_probe" in det:
         print(f"  transfer probe: {det['transfer_probe']}")
     for ev in det.get("lifecycle", []):
@@ -129,7 +155,16 @@ def cmd_admit(args) -> int:
     gate = _build_gate(args)
     d = gate.admit(cfg, mut)
     _print_verdict(d)
-    return 0 if d.verdict in (Verdict.COMMIT, Verdict.SCOPE_CORRECT, Verdict.ABSTAIN_WITH_RECORD) else 1
+    return _exit_code([d.verdict], args.abstain_ok)
+
+
+def _exit_code(verdicts: list[Verdict], abstain_ok: bool) -> int:
+    """Reject anywhere fails; otherwise an abstain is unknown, not passed."""
+    if Verdict.REJECT in verdicts:
+        return EXIT_REJECT
+    if Verdict.ABSTAIN_WITH_RECORD in verdicts and not abstain_ok:
+        return EXIT_ABSTAIN
+    return EXIT_PASS
 
 
 def cmd_audit(args) -> int:
@@ -181,18 +216,29 @@ def cmd_sequence(args) -> int:
     happen as later commits change the committed set."""
     cfg = _load_mapping(args.config)
     gate = _build_gate(args)
-    paths = sorted(Path(p) for p in args.mutations)
-    exit_code = 0
-    for path in paths:
-        mut = Mutation.from_dict(_load_mapping(str(path)))
+    ids: list[str] = []
+    # order is the experiment: a deferred artifact can only promote when its
+    # partner arrives later, so the paths run exactly as given
+    for path in args.mutations:
+        mut = Mutation.from_dict(_load_mapping(path))
         d = gate.admit(cfg, mut)
         print(f"{mut.id}:")
         _print_verdict(d)
-        if d.verdict == Verdict.REJECT:
-            exit_code = 1
+        ids.append(mut.id)
     if gate.deferred:
         print("deferred:", ", ".join(f"{m.id} (retries {r})" for m, r in gate.deferred))
-    return exit_code
+    # the exit code reports where each artifact ended, not its first verdict:
+    # a promoted abstain passed, a commit revoked later in the stream failed
+    final = {
+        LifecycleState.COMMITTED: Verdict.COMMIT,
+        LifecycleState.CONDITIONAL: Verdict.COMMIT,
+        LifecycleState.REJECTED: Verdict.REJECT,
+        LifecycleState.REVOKED: Verdict.REJECT,
+    }
+    verdicts = [
+        final.get(gate.artifact_state(i)["state"], Verdict.ABSTAIN_WITH_RECORD) for i in ids
+    ]
+    return _exit_code(verdicts, args.abstain_ok)
 
 
 def cmd_replay(args) -> int:
@@ -248,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cache", help="episode cache path (.json)")
     p.add_argument("--ledger", help="ledger path (.jsonl)")
     p.add_argument("--name", help="run-name for cache keys (bump when the agent changes)")
+    p.add_argument("--abstain-ok", action="store_true", help="exit 0 on abstain instead of 3")
     p.set_defaults(fn=cmd_admit)
 
     p = sub.add_parser("sequence", help="admit a stream of mutations through one gate (G3 lifecycle)")
@@ -269,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cache")
     p.add_argument("--ledger")
     p.add_argument("--name")
+    p.add_argument("--abstain-ok", action="store_true", help="exit 0 on abstain instead of 3")
     p.set_defaults(fn=cmd_sequence)
 
     p = sub.add_parser("audit", help="re-measure committed mutations; revoke harm")
