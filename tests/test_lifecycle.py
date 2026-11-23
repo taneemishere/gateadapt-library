@@ -1,10 +1,11 @@
 """G3 lifecycle: deferred queue promotion, pairwise interaction probe,
 orphan revocation, and drift epochs."""
 
-from gateadapt import Mutation, Verdict
-from gateadapt.gate import Gate, _MAX_DEFERRED_RETRIES
-from gateadapt.ledger import committed_from_ledger, read_ledger
 from conftest import BASE_CFG, make_tasks, scripted_run
+
+from gateadapt import Mutation, Verdict
+from gateadapt.gate import _MAX_DEFERRED_RETRIES, Gate
+from gateadapt.ledger import committed_from_ledger, read_ledger
 
 
 def world(seed=1):
@@ -21,8 +22,10 @@ def pair_world():
     return Gate(run=scripted_run(), dev=dev, probe=probe, draws=3, seed=1)
 
 
-IX = lambda: Mutation(id="ix", patch={"needs_pair.a": True}, scope="all")
-PB = lambda: Mutation(id="pb", patch={"needs_pair.b": True}, scope="all")
+def IX():
+    return Mutation(id="ix", patch={"needs_pair.a": True}, scope="all")
+def PB():
+    return Mutation(id="pb", patch={"needs_pair.b": True}, scope="all")
 
 
 class TestDeferredPromotion:

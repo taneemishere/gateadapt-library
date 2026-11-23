@@ -19,7 +19,7 @@ def test_load_tasks_roundtrip(tmp_path):
 
 def test_load_tasks_requires_id(tmp_path):
     p = tmp_path / "t.jsonl"
-    p.write_text('{"tags": {}}\n')
+    p.write_text('{"tags": {}}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="no 'id'"):
         load_tasks(p)
 

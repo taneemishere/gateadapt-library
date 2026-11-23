@@ -1,4 +1,3 @@
-import math
 
 from gateadapt import Task, eval_pair, sign_needed, sign_test_p, tasks_needed
 from gateadapt.stats import fisher_p

@@ -3,9 +3,10 @@ reserve deck / generator item sources, probe still gates the final commit."""
 
 import random
 
+from conftest import BASE_CFG, scripted_run
+
 from gateadapt import Mutation, Task, Verdict
 from gateadapt.gate import Gate
-from conftest import BASE_CFG, make_tasks, scripted_run
 
 
 def answers(n, prefix, seed, fresh=False):
@@ -39,7 +40,8 @@ def gate(dev, probe=None, reserve=None, generate=None, effect=0.20, **kw):
     )
 
 
-LIFT_MUT = lambda: Mutation(id="tk", patch={"retrieval.top_k": 8}, scope="all")
+def LIFT_MUT():
+    return Mutation(id="tk", patch={"retrieval.top_k": 8}, scope="all")
 
 
 class TestSynthesis:
@@ -89,7 +91,7 @@ class TestSynthesis:
         def generate(region_fn, n, rng):
             calls.append(n)
             out = []
-            for i in range(n):
+            for _ in range(n):
                 t = Task(
                     id=f"syn-{rng.randrange(10**6)}",
                     tags={"type": "answer"},
@@ -117,8 +119,10 @@ class TestSynthesis:
         g = gate(list(dev), reserve=answers(30, "res", 53), effect=0.15)
         d = g.admit(BASE_CFG, LIFT_MUT())
         assert d.verdict == Verdict.ABSTAIN_WITH_RECORD
-        total_drawn = sum(r["items_drawn"] for r in d.detail["synthesis_rounds"])
-        assert total_drawn <= 30
+        rounds = d.detail["synthesis_rounds"]
+        assert sum(r.get("items_drawn", 0) for r in rounds) <= 30
+        # a dry reserve ends synthesis instead of re-testing the same pool
+        assert rounds[-1]["reason"] == "no_fresh_items"
 
     def test_transfer_probe_still_gates_synthesis_commit(self):
         dev, probe = answers(24, "dev", 11), answers(24, "probe", 23, fresh=True)
@@ -174,3 +178,62 @@ class TestSynthesis:
             d = g.admit(BASE_CFG, LIFT_MUT())
             verdicts.append((d.verdict, len(d.detail["synthesis_rounds"])))
         assert verdicts[0] == verdicts[1]
+
+
+def test_generated_batches_replay_from_cache(tmp_path):
+    """A G2 rerun replays the cached batch instead of calling the generator
+    (an LLM forge bills per call), and reaches the same verdict."""
+    from gateadapt import Gate, Mutation, Task
+
+    calls = {"n": 0}
+
+    def gen(region, n, rng):
+        calls["n"] += 1
+        return [Task(id=f"g{calls['n']}-{i}-{rng.random():.6f}", tags={"type": "a"}, data={}) for i in range(n)]
+
+    def run(t, c):
+        return 1.0 if c.get("x") and int(t.id.split("-")[1]) % 3 else 0.0
+
+    dev = [Task(id=f"d{i}", tags={"type": "a"}, data={}) for i in range(8)]
+    m = Mutation(id="m", patch={"x": True}, scope='tags.type == "a"')
+    cache = str(tmp_path / "c.json")
+
+    def admit():
+        g = Gate(run=lambda t, c: run(t, c) if t.id.startswith("g") else 0.0,
+                 dev=list(dev), generate=gen, draws=1, cache_path=cache, name="r")
+        return g.admit({}, m)
+
+    first = admit()
+    n_first = calls["n"]
+    assert n_first >= 1 and first.detail.get("synthesis_rounds")
+    second = admit()
+    assert calls["n"] == n_first  # no new generator calls
+    assert second.verdict == first.verdict and second.detail["p"] == first.detail["p"]
+
+
+def test_pre_06_flat_cache_still_loads(tmp_path):
+    import json as _json
+
+    from gateadapt.cache import EpisodeCache
+
+    p = tmp_path / "old.json"
+    p.write_text(_json.dumps({"run|abc|def": [1.0, 0.0]}), encoding="utf-8")
+    c = EpisodeCache(p)
+    assert c._data == {"run|abc|def": [1.0, 0.0]} and c.generated == {}
+    c.save()
+    assert set(_json.loads(p.read_text(encoding="utf-8"))) == {"episodes", "generated"}
+    assert EpisodeCache(p)._data == {"run|abc|def": [1.0, 0.0]}
+
+
+def test_round_with_no_fresh_items_refunds_and_stops():
+    """A generator that only repeats known items yields nothing new; that
+    round must not spend alpha re-testing the old pool."""
+    from gateadapt import Gate, Mutation, Task
+
+    dev = [Task(id=f"d{i}", tags={"type": "a"}, data={}) for i in range(8)]
+    g = Gate(run=lambda t, c: 0.0, dev=list(dev), draws=1,
+             generate=lambda region, n, rng: list(dev))  # every id already known
+    d = g.admit({}, Mutation(id="m", patch={"x": True}, scope='tags.type == "a"', family="f"))
+    assert d.detail["synthesis_rounds"] == [{"k": 1, "reason": "no_fresh_items"}]
+    pool = g._pools["f"]
+    assert abs(pool._spent - pool.wealth / pool.looks) < 1e-12  # only the dev look stays spent

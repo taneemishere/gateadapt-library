@@ -125,7 +125,7 @@ class TestDSL:
 
 class TestInferSpec:
     def test_infers_tag_fields(self):
-        tasks = make = [
+        tasks = [
             Task(id="1", tags={"type": "refusal", "n": 3}, data={"p": 0.5, "meta": {"x": 1}}),
             Task(id="2", tags={"type": "answer", "n": 1}, data={"p": 0.7}),
         ]

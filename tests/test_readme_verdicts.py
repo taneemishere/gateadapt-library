@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from conftest import BASE_CFG
+
 from gateadapt import Gate, Mutation, Verdict
 from gateadapt.decks import load_tasks
 
@@ -30,7 +30,7 @@ def _gate(reserve=False, items_per_round=24):
 
 def _admit(gate, name):
     mut = Mutation.from_dict(
-        yaml.safe_load((EX / "mutations" / f"{name}.yaml").read_text())
+        yaml.safe_load((EX / "mutations" / f"{name}.yaml").read_text(encoding="utf-8"))
     )
     return gate.admit(dict(BASE_CFG), mut)
 
@@ -104,7 +104,8 @@ TOY = [
     "--run", str(EX / "toy_agent.py") + ":run",
 ]
 RESERVE = ["--reserve", str(EX / "tasks_reserve.jsonl")]
-M = lambda n: str(EX / "mutations" / f"{n}.yaml")
+def M(n):
+    return str(EX / "mutations" / f"{n}.yaml")
 
 
 @pytest.mark.parametrize(
@@ -127,7 +128,7 @@ def test_readme_output_blocks_match_cli(argv, capsys):
     out = capsys.readouterr().out.rstrip("\n").splitlines()
     readme = [
         ln.split("        #")[0].rstrip()
-        for ln in (EX.parent / "README.md").read_text().splitlines()
+        for ln in (EX.parent / "README.md").read_text(encoding="utf-8").splitlines()
     ]
     starts = [i for i, ln in enumerate(readme) if ln == out[0]]
     assert any(readme[i : i + len(out)] == out for i in starts), "\n".join(out)

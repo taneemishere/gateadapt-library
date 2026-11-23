@@ -1,19 +1,13 @@
-import json
 
 import pytest
+from conftest import BASE_CFG, make_tasks, scripted_run
 
 from gateadapt import (
-    Deck,
-    DeckRole,
-    HonestyViolation,
     Mutation,
-    Task,
     Verdict,
-    load_tasks,
 )
 from gateadapt.gate import Gate
 from gateadapt.ledger import committed_from_ledger, read_ledger
-from conftest import BASE_CFG, make_tasks, scripted_run
 
 
 @pytest.fixture

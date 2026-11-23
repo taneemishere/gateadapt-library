@@ -1,6 +1,7 @@
-from gateadapt import FeatureSpec, Mutation, Task
-from gateadapt.gate import g0_check
 from conftest import make_tasks
+
+from gateadapt import FeatureSpec, Mutation
+from gateadapt.gate import g0_check
 
 TASKS = make_tasks(24)
 SPEC = FeatureSpec(fields={"tags.type": str, "tags.domain": str})

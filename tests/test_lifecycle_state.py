@@ -3,11 +3,12 @@ decisions and ledger events, rebuild parity across processes, status CLI."""
 
 import json
 
-from gateadapt import Gate, LifecycleState, Mutation, Verdict
-from gateadapt.cli import main as cli_main
-from gateadapt.gate import _MAX_DEFERRED_RETRIES
 from conftest import BASE_CFG, make_tasks, scripted_run
 from test_lifecycle import IX, PB, pair_world, world
+
+from gateadapt import Gate, LifecycleState, Mutation
+from gateadapt.cli import main as cli_main
+from gateadapt.gate import _MAX_DEFERRED_RETRIES
 
 
 def _ledger_gate(tmp_path, **kw):
@@ -144,7 +145,7 @@ class TestRebuildParity:
     def test_ledger_verdict_carries_state_after(self, tmp_path):
         g1 = _ledger_gate(tmp_path)
         g1.admit(BASE_CFG, PB())
-        events = [json.loads(l) for l in (tmp_path / "ledger.jsonl").read_text().splitlines()]
+        events = [json.loads(line) for line in (tmp_path / "ledger.jsonl").read_text(encoding="utf-8").splitlines()]
         verdict = next(e for e in events if e.get("event") == "verdict")
         assert verdict["detail"]["state_after"] == "committed"
 

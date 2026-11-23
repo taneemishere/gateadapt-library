@@ -131,7 +131,8 @@ class TestChatClient:
 
             def __call__(self, request, timeout=None):
                 self.calls += 1
-                import urllib.error, io
+                import io
+                import urllib.error
 
                 raise urllib.error.HTTPError(
                     "u", 400, "bad request", {}, io.BytesIO(b"bad")
@@ -250,7 +251,7 @@ class TestLLMGenerate:
 
         gen = llm_generate(LLM(), describe="refusal tasks")
         out = gen(lambda t: t.tags.get("type") == "refusal", 2, random.Random(0))
-        assert [t.id for t in out] == ["s1", "s3"]
+        assert [t.data["question"] for t in out] == ["q1", "q3"]
         assert all(t.data["gold"] == "REFUSE" for t in out)
 
     def test_describe_callable_sees_region_only(self):
@@ -265,7 +266,8 @@ class TestLLMGenerate:
             return "whatever"
 
         gen = llm_generate(LLM(), describe=describe)
-        region = lambda t: True
+        def region(t):
+            return True
         gen(region, 1, __import__("random").Random(0))
         assert captured[0] is region  # predicate itself, no mutation info
 
@@ -282,7 +284,7 @@ class TestLLMGenerate:
 
         gen = llm_generate(LLM(), describe="x")
         out = gen(lambda t: True, 5, __import__("random").Random(0))
-        assert [t.id for t in out] == ["ok", "weird"]
+        assert [t.tags for t in out] == [{"type": "answer"}, {}]
         assert out[1].tags == {}
 
     def test_bad_json_retries_then_returns_partial(self):
@@ -297,7 +299,7 @@ class TestLLMGenerate:
 
         gen = llm_generate(LLM(), describe="x", max_batches=3)
         out = gen(lambda t: True, 3, __import__("random").Random(0))
-        assert len(out) == 1 and out[0].id == "ok"
+        assert len(out) == 1 and out[0].data["gold"] == "g"
 
 
 class TestNIMClient:
@@ -331,3 +333,68 @@ def test_live_run_postprocess_runs_before_scoring():
     )
     assert run(t, {}) == 0.0
     assert run(t, {"fix": True}) == 1.0
+
+
+def test_deadline_turns_a_stalled_call_into_a_retry(capsys, monkeypatch):
+    """A call that never answers must fail at the deadline and be retried,
+    not hold the process for hours (seen live after a laptop sleep)."""
+    import threading
+
+    release = threading.Event()
+
+    class StallThenOk:
+        calls = 0
+
+        def __call__(self, request, timeout=None):
+            StallThenOk.calls += 1
+            if StallThenOk.calls == 1:
+                release.wait(10)  # stalls far past the deadline
+            return FakeHTTPResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    c = ChatClient("k", "m", "http://x", opener=StallThenOk(), retries=3, deadline=0.2)
+    t0 = time.monotonic()
+    try:
+        assert c.chat([{"role": "user", "content": "x"}]) == "ok"
+    finally:
+        release.set()
+    assert time.monotonic() - t0 < 5
+    assert StallThenOk.calls == 2
+    assert "no response within 0.2s" in capsys.readouterr().err
+
+
+def test_deadline_does_not_swallow_errors():
+    class Fails:
+        def __call__(self, request, timeout=None):
+            import io
+            import urllib.error
+
+            raise urllib.error.HTTPError("http://x", 401, "no", {}, io.BytesIO(b"bad key"))
+
+    c = ChatClient("k", "m", "http://x", opener=Fails(), deadline=5)
+    with pytest.raises(Exception, match="HTTP 401"):
+        c.chat([{"role": "user", "content": "x"}])
+
+
+def test_generate_ids_survive_models_reusing_labels():
+    """Models label every batch "task_001..."; the gate drops a repeated id
+    as the same item twice, so ids must come from content (seen live: a G2
+    round drew 0 fresh items)."""
+
+    class Reuses:
+        n = 0
+
+        def chat(self, messages, **kw):
+            Reuses.n += 1
+            return json.dumps([{"id": "task_001", "tags": {"type": "a"}, "question": f"q{Reuses.n}"}])
+
+    gen = llm_generate(Reuses(), describe="x")
+    import random
+
+    first = gen(lambda t: True, 1, random.Random(0))
+    second = gen(lambda t: True, 1, random.Random(0))
+    assert first[0].id != second[0].id
+    # identical content is still the same item
+    again = llm_generate(type("Same", (), {"chat": lambda self, m, **k: json.dumps(
+        [{"id": "x", "tags": {}, "question": "q"}, {"id": "y", "tags": {}, "question": "q"}])})(), describe="x")
+    assert len(again(lambda t: True, 2, random.Random(0))) == 1
