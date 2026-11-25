@@ -18,6 +18,40 @@ on:
       - ".github/workflows/gateadapt.yml"
 
 jobs:
+  test:
+    # the package declares >=3.10, so every supported version runs the suite;
+    # Windows and macOS run it too (the ledger lock, paths and console
+    # encoding all differ there)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - { os: windows-latest, python-version: "3.12" }
+          - { os: macos-latest, python-version: "3.12" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install ".[dev]"
+      # -X warn_default_encoding + error: any open() relying on the platform
+      # encoding fails here, on every OS, before it bites a Windows user
+      - run: python -X warn_default_encoding -W error::EncodingWarning -m pytest tests/ -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check src tests examples
+
   dogfood:
     # the library's own CI: run the bundled toy admissions through the real
     # CLI — deterministic, free, no secrets. Exercises the exact pattern the
@@ -32,8 +66,17 @@ jobs:
 
       - run: pip install ".[dev]"
 
-      - name: Test suite
-        run: python -m pytest tests/ -x -q
+      - name: Quickstart from the installed package (gateadapt init)
+        run: |
+          cd "$(mktemp -d)"
+          gateadapt --version
+          gateadapt init
+          set +e
+          gateadapt admit examples/mutations/refusal_contract.yaml \
+            --config examples/config.yaml --tasks examples/tasks_dev.jsonl \
+            --probe examples/tasks_probe.jsonl --run examples/toy_agent.py:run
+          rc=$?
+          if [ $rc -ne 3 ]; then echo "::error::quickstart should abstain (exit 3), got $rc"; exit 1; fi
 
       - name: Helpful mutation commits via synthesis reserve (exit 0)
         run: |

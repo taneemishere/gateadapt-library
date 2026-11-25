@@ -48,7 +48,13 @@ pip install -e ".[dev]"          # hack on it (editable + pytest)
 
 ## 5-minute quickstart
 
-The repo ships a deterministic toy agent (no API key, zero compute).
+The package ships a deterministic toy agent (no API key, zero compute).
+After `pip install gateadapt`, copy the examples into the current
+directory. In a clone of the repo they are already there.
+
+```bash
+gateadapt init                   # writes ./examples
+```
 
 ```bash
 gateadapt admit examples/mutations/refusal_contract.yaml \
@@ -193,7 +199,9 @@ expectation and revokes both (`lifecycle: revoked conflict-a
 The same gate drives a real model. `run(task, config)` is a contract, and
 `gateadapt.live` turns any `.chat(messages)` client into one.
 `gateadapt.llm` ships a stdlib OpenAI-compatible client with a hard
-token-bucket rate limiter (default 36 rpm) and transient-retry. A
+token-bucket rate limiter (default 36 rpm), transient-retry reported on
+stderr, and a 600-second wall-clock deadline per call, so a stalled
+request becomes a retry instead of a hung process. A
 mutation's `patch` reaches the wire per call. Supported keys are
 `system_prompt`, `prompt_suffix`, `temperature`, `max_tokens`, `seed`,
 and `model`.
@@ -228,22 +236,24 @@ same mutation fixed 4 of 8 items on 2026-11-19 and 5 of 8 on 2026-11-21.
 That is why the gate pairs both arms on the same items and asks for
 discordant pairs, not a single lucky run.
 
-Every row below is a real v0.5 run on 2026-11-21 with the same model,
-temperature 0 and `--draws 1`, each mutation on a fresh ledger. Live runs
-reached all four verdicts.
+Every row below is a real v0.6 run on 2026-11-22 with the same model,
+temperature 0 and `--draws 1`, each mutation on a fresh ledger and a fresh
+cache. Live runs reached all four verdicts. Next to the v0.5 run a day
+earlier, every verdict held; `single_word` moved from 6-0 to 7-0 and the
+stacked `live_unknown` reject from 0-6 to 0-7.
 
 | live mutation | verdict | evidence |
 |---|---|---|
 | `strict_answers` | `abstain_with_record` | +0.625 on answers, 5 wins 0 losses, p=0.0625 |
 | `refusal_contract_live` | `commit` | +1.000 on refusals, 8 wins 0 losses, p=0.0078, transfer probe pass |
-| `single_word` | `commit` | +0.750 on answers, 6 wins 0 losses, p=0.031, transfer probe pass |
+| `single_word` | `commit` | +0.875 on answers, 7 wins 0 losses, p=0.0156, transfer probe pass |
 | `context_only` | `scope_correct` | declared `all`, narrowed to `tags.type == "refusal"` (inside +1.000 on 8, outside +0.000 on 8) |
 | `refuse_if_unsure` | `scope_correct` | declared `all`, narrowed to `tags.type == "refusal"` the same way |
 | `temp_tune` | `abstain_with_record` | +0.000 on 8 items, 0 wins 0 losses |
 | `terse_check` | `abstain_with_record` | +0.000 on 8 items, 0 wins 0 losses |
 | `live_unknown` | `abstain_with_record` | +0.000 on its own, the verbose baseline already fails every answer item |
 | `brief_answer` | `commit` via **G2** | one round of 22 LLM-minted items, fresh test pool of 11 at +0.636, 7 wins 0 losses, p=0.0156 at α 0.025 |
-| sequence, then `live_unknown` | `reject` | stacked on committed `single_word`, −0.750, 0 wins 6 losses, p=0.031 |
+| sequence, then `live_unknown` | `reject` | stacked on committed `single_word`, −0.875, 0 wins 7 losses, p=0.0156 |
 
 The sequence ran `refusal_contract_live`, `strict_answers`, `single_word`
 and `live_unknown` in that order. It committed, deferred, committed and
@@ -296,7 +306,12 @@ overrides it.
 Episode caches are namespaced by ambient client params. The chain is
 `run.__qualname__` → `RunSurface.name` → cache key, and it covers model,
 temperature, seed, and max_tokens. Switching `GATEADAPT_LLM_MODEL` or
-temperature never serves stale episodes.
+temperature never serves stale episodes. The key also carries a hash of
+the agent's code, the `--run` file plus anything passed with `--code
+PATH`, so editing your agent measures it fresh instead of serving scores
+cached from the old code. `--name` pins the key by hand. G2 batches from
+`--generate` are cached too, so a rerun replays the same generated items
+instead of paying the generator again.
 
 ```python
 from gateadapt.llm import NvidiaNIMClient        # or any .chat() client
@@ -379,8 +394,10 @@ Notes that matter in CI.
 
 - **The episode cache is the budget.** Persist it between runs
   (`actions/cache` above) or every retry pays full price again. Caches
-  are namespaced by task, config, and ambient client params (model,
-  temperature, seed), so key rotation is safe.
+  are namespaced by task, config, ambient client params (model,
+  temperature, seed) and a hash of the agent's code, so key rotation and
+  agent edits are safe. If your agent spans several files, pass the rest
+  with `--code harness/` so edits there count too.
 - **The ledger is the record — commit it, don't cache it.** It is the
   source of truth for the committed set and each family's spent look
   budget; a cache eviction would silently reset both, and concurrent PR
@@ -395,8 +412,9 @@ Notes that matter in CI.
   it apart from a commit. The recipe above turns it into a warning; pass
   `--abstain-ok` to exit 0 instead. Wire `--reserve` for G2 synthesis if
   you want abstains to try resolving themselves before giving up.
-- Exit semantics are `0` for commit / scope-correct, `1` for reject, `3`
-  for abstain.
+- Exit semantics are `0` for commit / scope-correct, `1` for reject, `2`
+  for bad input, `3` for abstain, and `4` when your agent's `run()`
+  fails. A crash never exits `1`, so it can't pass for a reject.
 - **Fork PRs cannot push the ledger back.** `GITHUB_TOKEN` is read-only on
   forks. Run this recipe on same-repo branches, or have a maintainer run
   it for fork contributions.
@@ -489,7 +507,7 @@ not(tags.needs_refusal == true)
 tags.difficulty in ["easy", "medium"]
 ```
 
-## What's inside (v0.5)
+## What's inside (v0.6)
 
 - **G0.** Schema/scope validation, kind rules (stateful kinds must be
   global), held-out ID leakage. Rejects before a single episode runs.
@@ -545,8 +563,10 @@ tags.difficulty in ["easy", "medium"]
   significant harm (a mean loss of at least 0.01 with p < alpha). In
   simulation a no-op change is revoked about 1% of the time, down from
   31% under the old rule.
-- **Episode cache.** `run` results keyed by (run-name, task, config); the
-  paired slot design makes repeat measurements free and deterministic.
+- **Episode cache.** `run` results keyed by (run-name, task, config), where
+  the run-name carries a hash of the agent's code; the paired slot design
+  makes repeat measurements free and deterministic. Generated G2 batches
+  and the G3 lifecycle probe's episodes are cached as well.
 - **ledger.jsonl.** Append-only verdict/revoke log; `committed_from_ledger`
   rebuilds the live committed set and `lifecycle_from_ledger` the rest of
   the lifecycle (deferred queue, promoted partners, interactions,
@@ -565,11 +585,20 @@ tags.difficulty in ["easy", "medium"]
 - **`gateadapt replay`.** Zero-compute AutoHarness history replay on
   bundled panels.
 
-## Exit codes (`admit`, `sequence`)
+## Exit codes
 
-`0` for commit / scope-corrected, `1` for reject, `3` for abstain (`0`
-with `--abstain-ok`). `sequence` reports where each artifact ended, so a
-promoted abstain counts as passed and a revoked commit as failed.
+| code | meaning |
+|---|---|
+| `0` | commit / scope-corrected (and abstain with `--abstain-ok`) |
+| `1` | reject |
+| `2` | bad input: a missing or unparseable file, a bad scope, duplicate or shared task ids, a corrupt cache or ledger, or a ledger path that doesn't exist for `status` / `audit` |
+| `3` | abstain, not enough evidence |
+| `4` | your agent failed: `run()` raised, returned a score outside [0, 1], or its module failed to import |
+
+Errors print one line, `gateadapt: error: ...`, with no traceback; set
+`GATEADAPT_DEBUG=1` to see it. `sequence` reports where each artifact
+ended, so a promoted abstain counts as passed and a revoked commit as
+failed. `gateadapt --version` prints the installed version.
 
 ## Honesty notes
 
@@ -593,7 +622,7 @@ promoted abstain counts as passed and a revoked commit as failed.
 ## Assumptions and limits
 
 - **`run` must return scores in [0, 1].** `RunSurface.draw` raises
-  `ValueError` otherwise. The interaction shortfall caps the additive
+  `AgentError` otherwise. The interaction shortfall caps the additive
   expectation at 1.0, and the harm floor (`0.01`) is absolute, so
   a scorer returning raw counts would produce silent nonsense.
 - **`conflict_min = 0.15` is tuned on fixtures.** It sits between
@@ -616,10 +645,16 @@ promoted abstain counts as passed and a revoked commit as failed.
   proposed adaptively from dev outcomes. A self-modifying loop does
   exactly that last part; the frozen probe and audit decks are the
   defense.
-- **One writer per cache/ledger.** Episode and ledger writes are atomic,
-  so a kill mid-write never corrupts them, but two processes racing on
-  the same paths will interleave. Point each concurrent job at its own
-  files, or serialize on the commit step.
+- **Concurrent jobs on one ledger.** Each look's budget spend is a
+  transaction under a ledger lock (a `ledger.jsonl.lock` file next to
+  it), so concurrent admits can't overspend a family; eight racing
+  processes are pinned in the test suite. Two concurrent admits still
+  each measure against the committed set they loaded at start, so they
+  don't stack on each other; serialize admits if stacking matters.
+- **One writer per episode cache.** Cache saves are atomic, so a kill
+  mid-write never corrupts the file, but two processes saving the same
+  cache keep only the last writer's new episodes. Nothing wrong gets
+  measured; the dropped episodes are paid for again on the next run.
 - **`--draws N` is a slot pool, not draws per item.** Each item's pair is
   measured at one of N slots (the four-arm lifecycle probe likewise), so
   draws decorrelate episode noise across items rather than averaging it

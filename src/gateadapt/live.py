@@ -17,9 +17,11 @@ Task shape (the same JSONL Task as everywhere else):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .llm import client_identity
 from .models import Task
@@ -168,21 +170,21 @@ def llm_generate(
                 rows = json.loads(raw[raw.find("[") : raw.rfind("]") + 1])
             except (json.JSONDecodeError, ValueError):
                 continue
-            for i, row in enumerate(rows):
+            for row in rows:
                 if not isinstance(row, dict):
                     continue  # malformed model output, skip the row
-                tags = row.get("tags")
+                tags = dict(row["tags"]) if isinstance(row.get("tags"), dict) else {}
+                data = {k: v for k, v in row.items() if k not in ("id", "tags")}
+                # the id is a hash of the content, never the model's own
+                # label: models reuse "task_001" in every call, and the gate
+                # drops a repeated id as the same item measured twice. A
+                # truly identical item still collapses to one
+                blob = json.dumps({"tags": tags, "data": data}, sort_keys=True, default=str)
                 t = Task(
-                    id=str(row.get("id", f"{id_prefix}-{rng.randrange(10**6)}")),
-                    tags=dict(tags) if isinstance(tags, dict) else {},
-                    data={
-                        k: v
-                        for k, v in row.items()
-                        if k not in ("id", "tags")
-                    },
+                    id=f"{id_prefix}-{hashlib.sha1(blob.encode()).hexdigest()[:12]}",
+                    tags=tags,
+                    data=data,
                 )
-                # models repeat ids across batches, dedupe so the test pool
-                # can't double-count a minted item
                 if region_fn(t) and t.id not in seen:
                     seen.add(t.id)
                     out.append(t)

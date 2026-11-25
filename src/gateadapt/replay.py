@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .decks import Deck
 from .gate import Gate
 from .models import DeckRole, Mutation, Task
-from .decks import Deck
 
 _DATA = Path(__file__).parent / "data"
 
@@ -42,7 +42,7 @@ def load_fixture(model: str, root: str | Path | None = None) -> dict[str, Any]:
         from make_replay_fixture import extract  # type: ignore
 
         return extract(Path(root), model)
-    return json.loads((_DATA / f"autoharness_{model}.json").read_text())
+    return json.loads((_DATA / f"autoharness_{model}.json").read_text(encoding="utf-8"))
 
 
 def replay(model: str = "9b", root: str | Path | None = None, min_n: int = 8) -> dict[str, Any]:

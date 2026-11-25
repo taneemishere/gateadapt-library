@@ -10,9 +10,10 @@ paired z-test, with the sign test as the small-count fallback.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from statistics import NormalDist
-from typing import Any, Callable
+from typing import Any
 
 # below this many discordant pairs the paired z-test is anti-conservative
 _MIN_DISCORDANT = 8

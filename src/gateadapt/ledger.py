@@ -8,13 +8,52 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from .errors import InputError
 from .models import Mutation
 
 
-def append_event(path: str | Path, event: dict[str, Any]) -> None:
+@contextmanager
+def ledger_lock(path: str | Path) -> Iterator[None]:
+    """Exclusive cross-process lock on a ledger (a sidecar `.lock` file).
+
+    Holding it across read-then-append makes the pair a transaction, which
+    is what keeps two concurrent admits from both spending the last share
+    of a family's alpha budget. Not reentrant: inside the lock, write with
+    `_append`, not `append_event`."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p.with_name(p.name + ".lock"), "a+b") as fh:
+        try:
+            import fcntl
+        except ImportError:  # Windows
+            import msvcrt
+
+            fh.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    continue  # LK_LOCK gives up after ~10s; keep waiting
+            try:
+                yield
+            finally:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _append(path: str | Path, event: dict[str, Any]) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     event = {"ts": round(time.time(), 3), **event}
@@ -22,11 +61,25 @@ def append_event(path: str | Path, event: dict[str, Any]) -> None:
         f.write(json.dumps(event, sort_keys=False) + "\n")
 
 
+def append_event(path: str | Path, event: dict[str, Any]) -> None:
+    with ledger_lock(path):
+        _append(path, event)
+
+
 def read_ledger(path: str | Path) -> list[dict[str, Any]]:
     p = Path(path)
     if not p.exists():
         return []
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    events = []
+    for ln, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            events.append(json.loads(line))
+        except ValueError as e:
+            # the ledger is the record; never guess past a damaged line
+            raise InputError(f"ledger {p}:{ln} is not valid JSON ({e})") from e
+    return events
 
 
 def committed_from_ledger(path: str | Path) -> list[Mutation]:

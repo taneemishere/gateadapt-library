@@ -19,25 +19,29 @@ Pipeline (G0 + G1):
 
 from __future__ import annotations
 
+import json
 import random
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .cache import EpisodeCache
 from .decks import Deck, DeckRole, check_disjoint, check_unique_ids
 from .ledger import (
+    _append,
     append_event,
     committed_from_ledger,
+    ledger_lock,
     lifecycle_from_ledger,
     pools_from_ledger,
 )
 from .models import (
+    STATELESS_KINDS,
     ArtifactKind,
     Decision,
     FeatureSpec,
     LifecycleState,
     Mutation,
-    STATELESS_KINDS,
     Task,
     Verdict,
 )
@@ -47,16 +51,16 @@ from .scope import evaluate, infer_spec, to_jsonable, validate
 from .stats import (
     ConditionalResult,
     PairedResult,
+    below_target_p,
     eval_conditional,
     eval_pair,
     fisher_p,
-    below_target_p,
     gap_p,
     sign_needed,
     sign_test_p,
     tasks_needed,
 )
-from .surface import RunSurface
+from .surface import RunSurface, default_run_name
 
 _EPS = 1e-6
 _HARM_FLOOR = 0.01
@@ -276,12 +280,28 @@ class Gate:
         producing indecisive members drains its own budget, not the gate's."""
         return self._pools.setdefault(mutation.family_name, self._new_pool())
 
-    def _spend(self, pool: AlphaPool, family: str, alpha: float) -> None:
-        pool.spend(alpha)
-        if self.ledger_path:
-            append_event(
-                self.ledger_path, {"event": "look_spend", "family": family, "alpha": alpha}
-            )
+    def _reserve_look(self, pool: AlphaPool, family: str) -> float:
+        """Allocate and spend the next look as one transaction. With a
+        ledger, the family's state is re-read under the ledger lock first,
+        so a concurrent process's spend is seen and the budget can't be
+        overspent. Returns 0.0 when the family can't fund a look."""
+        if not self.ledger_path:
+            alpha = pool.allocate()
+            if alpha > 0:
+                pool.spend(alpha)
+            return alpha
+        with ledger_lock(self.ledger_path):
+            st = pools_from_ledger(self.ledger_path).get(family)
+            if st is not None:
+                pool._spent = st["spent"]
+                pool._look_index = st["looks"]
+            alpha = pool.allocate()
+            if alpha > 0:
+                pool.spend(alpha)
+                _append(
+                    self.ledger_path, {"event": "look_spend", "family": family, "alpha": alpha}
+                )
+        return alpha
 
     def _refund(self, pool: AlphaPool, family: str, alpha: float) -> None:
         pool.refund(alpha)
@@ -505,11 +525,16 @@ class Gate:
     # ---- G2: direction-blind synthesis ----------------------------------------
 
     def _draw_fresh(
-        self, region_fn: Callable[[Task], bool], n: int, rng: random.Random
+        self,
+        region_fn: Callable[[Task], bool],
+        n: int,
+        rng: random.Random,
+        batch_key: str | None = None,
     ) -> list[Task]:
         """Fresh in-region items for a synthesis round: from the user's
         generator callable, or the consumable reserve deck (drawn without
-        replacement)."""
+        replacement). Generated batches are cached under `batch_key`, which
+        names the region and the round, never the mutation's payload."""
         if self._generate is not None:
             # re-filter through the region predicate, since the generator sees the
             # discordant region, but only in-region items may join the pool.
@@ -517,7 +542,19 @@ class Gate:
             # would be the same item measured twice
             known = self._known_ids()
             fresh: list[Task] = []
-            for t in self._generate(region_fn, n, rng):
+            store = self.surface.cache.generated
+            key = None
+            if batch_key is not None:
+                gen_name = default_run_name(self._generate)
+                key = f"{gen_name}|{self.surface.name}|{batch_key}|n={n}"
+            if key is not None and key in store:
+                minted = [Task(id=d["id"], tags=d["tags"], data=d["data"]) for d in store[key]]
+            else:
+                minted = list(self._generate(region_fn, n, rng))
+                if key is not None:
+                    store[key] = [{"id": t.id, "tags": t.tags, "data": t.data} for t in minted]
+                    self.surface.flush()
+            for t in minted:
                 if region_fn(t) and t.id not in known:
                     known.add(t.id)
                     fresh.append(t)
@@ -546,15 +583,29 @@ class Gate:
         rounds: list[dict[str, Any]] = []
         test_pool: list[Task] = []
         for k in range(1, self.looks):  # look 1 was the dev measurement
-            alpha_k = pool.allocate()
+            alpha_k = self._reserve_look(pool, resolved.family_name)
             if alpha_k <= 0:
                 rounds.append({"k": k, "reason": "looks_exhausted"})
                 break
-            self._spend(pool, resolved.family_name, alpha_k)
-            fresh = self._draw_fresh(resolved.fires, self.items_per_round, rng)
-            if fresh:
-                self.dev.add(fresh)
-                test_pool.extend(fresh[len(fresh) // 2 :])
+            fresh = self._draw_fresh(
+                resolved.fires,
+                self.items_per_round,
+                rng,
+                batch_key=(
+                    f"{resolved.id}|{json.dumps(to_jsonable(resolved.scope_ast))}|round={k}"
+                    if resolved.scope_fn is None
+                    else None  # a callable region has no stable identity to key on
+                ),
+            )
+            if not fresh:
+                # nothing new to measure: re-testing the same pool at a fresh
+                # alpha would only be another look at old data. Give the
+                # look back and stop
+                self._refund(pool, resolved.family_name, alpha_k)
+                rounds.append({"k": k, "reason": "no_fresh_items"})
+                break
+            self.dev.add(fresh)
+            test_pool.extend(fresh[len(fresh) // 2 :])
             m = self._region_measure(
                 test_pool, base_config, committed, resolved, resolved.fires, rng
             )
@@ -816,15 +867,14 @@ class Gate:
             return self._record(mutation, Verdict.REJECT, {"g0_violations": violations}, rng)
 
         # look 1 is the dev measurement, at the look's own alpha (wealth/looks)
-        alpha1 = pool.allocate()
+        alpha1 = self._reserve_look(pool, mutation.family_name)
         if alpha1 <= 0:
             return self._record(
                 mutation,
                 Verdict.ABSTAIN_WITH_RECORD,
-                {"reason": "family_budget_exhausted"},
+                {"reason": "family_budget_exhausted", "family": mutation.family_name},
                 rng,
             )
-        self._spend(pool, mutation.family_name, alpha1)
         looks_trace: list[dict[str, Any]] = [{"look": 1, "alpha": alpha1, "where": "dev"}]
 
         m = self._region_measure(

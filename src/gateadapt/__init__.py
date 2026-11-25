@@ -9,11 +9,12 @@ Gate answers COMMIT, REJECT, ABSTAIN_WITH_RECORD, or SCOPE_CORRECT,
 each backed by paired evidence on the declared region only.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .decks import Deck, HonestyViolation, dump_tasks, load_tasks
 from .gate import Gate, g0_check
 from .ledger import committed_from_ledger, read_ledger
 from .live import contains, exact_match, live_run, llm_generate, llm_judge, predicate
-from .multiplicity import AlphaPool
 from .models import (
     ArtifactKind,
     Decision,
@@ -24,6 +25,7 @@ from .models import (
     Task,
     Verdict,
 )
+from .multiplicity import AlphaPool
 from .scope import evaluate, infer_spec, parse, validate
 from .stats import (
     ConditionalResult,
@@ -33,8 +35,6 @@ from .stats import (
     sign_test_p,
     tasks_needed,
 )
-
-from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("gateadapt")

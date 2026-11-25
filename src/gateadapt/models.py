@@ -10,9 +10,10 @@ and countable.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 
 class ArtifactKind(str, Enum):
@@ -162,9 +163,11 @@ class Mutation:
         }
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> "Mutation":
+    def from_dict(d: dict[str, Any]) -> Mutation:
         if not isinstance(d, dict) or not d.get("id"):
-            raise ValueError("mutation must be a mapping with an 'id' field")
+            from .errors import InputError
+
+            raise InputError("mutation must be a mapping with an 'id' field")
         scope = d.get("scope", "all")
         if isinstance(scope, list):
             from .scope import from_jsonable
@@ -180,7 +183,7 @@ class Mutation:
             partner=d.get("partner"),
         )
 
-    def with_scope(self, scope_ast: Any) -> "Mutation":
+    def with_scope(self, scope_ast: Any) -> Mutation:
         from .scope import dumps as scope_dumps
 
         m = Mutation(

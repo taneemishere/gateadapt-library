@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .errors import InputError
 from .models import DeckRole, Task
 from .scope import evaluate
 
@@ -37,7 +38,7 @@ def check_unique_ids(items: list[Task], label: str) -> None:
     if dupes:
         shown = ", ".join(repr(d) for d in dupes[:5])
         more = f" (+{len(dupes) - 5} more)" if len(dupes) > 5 else ""
-        raise ValueError(f"{label}: duplicate task ids {shown}{more}")
+        raise InputError(f"{label}: duplicate task ids {shown}{more}")
 
 
 def check_disjoint(decks: dict[str, list[Task]]) -> None:
@@ -50,7 +51,7 @@ def check_disjoint(decks: dict[str, list[Task]]) -> None:
             if shared:
                 shown = ", ".join(repr(x) for x in shared[:5])
                 more = f" (+{len(shared) - 5} more)" if len(shared) > 5 else ""
-                raise ValueError(
+                raise InputError(
                     f"{a} and {b} decks share {len(shared)} task id(s): {shown}{more}"
                 )
 
@@ -82,10 +83,15 @@ def load_tasks(path: str | Path, role: DeckRole | None = None) -> list[Task] | D
             line = line.strip()
             if not line:
                 continue
-            obj = json.loads(line)
+            try:
+                obj = json.loads(line)
+            except ValueError as e:
+                raise InputError(f"{path}:{ln} is not valid JSON ({e})") from e
+            if not isinstance(obj, dict):
+                raise InputError(f"{path}:{ln}: a task must be a JSON object")
             tid = obj.get("id") or obj.get("task_id")
             if not tid:
-                raise ValueError(f"{path}:{ln}: task has no 'id'")
+                raise InputError(f"{path}:{ln}: task has no 'id'")
             tags = dict(obj.get("tags") or obj.get("features") or {})
             data = {k: v for k, v in obj.items() if k not in ("id", "task_id", "tags", "features")}
             tasks.append(Task(id=str(tid), tags=tags, data=data))

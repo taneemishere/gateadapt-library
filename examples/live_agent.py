@@ -19,8 +19,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from gateadapt.llm import NvidiaNIMClient, client_from_keyfile  # noqa: E402
 from gateadapt.live import exact_match, live_run  # noqa: E402
+from gateadapt.llm import NvidiaNIMClient, client_from_keyfile  # noqa: E402
+
 
 def build_llm(model: str | None = None) -> NvidiaNIMClient:
     # temperature=0 keeps episodes deterministic, the eval's default;
@@ -90,6 +91,7 @@ def generate(region_fn, n, rng):
 if __name__ == "__main__":
     # smoke: one call, prints the raw response, run manually, ~1 request
     import json
+
     from gateadapt.models import Task
 
     t = Task(id="smoke", tags={}, data={"question": "What is 2+2?", "gold": "4"})

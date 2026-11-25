@@ -15,11 +15,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 NIM_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
@@ -108,6 +110,7 @@ class ChatClient:
         seed: int | None = None,
         max_tokens: int | None = None,
         timeout: int = 300,
+        deadline: float | None = 600.0,
         max_rpm: int = 36,
         retries: int = 5,
         opener: Callable[..., Any] = urllib.request.urlopen,
@@ -120,6 +123,10 @@ class ChatClient:
         self.seed = seed
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # `timeout` bounds each socket operation, so a server that trickles
+        # bytes can hold a call open indefinitely; `deadline` bounds the
+        # whole call in wall-clock seconds and turns a stall into a retry
+        self.deadline = deadline
         self.retries = retries
         self.opener = opener
         self.label = label
@@ -177,6 +184,32 @@ class ChatClient:
             },
         )
 
+    def _request_with_deadline(
+        self, messages: list[dict[str, Any]], **overrides: Any
+    ) -> LLMResponse:
+        if not self.deadline:
+            return self._request(messages, **overrides)
+        box: dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                box["ok"] = self._request(messages, **overrides)
+            except BaseException as e:  # noqa: BLE001, re-raised on the caller's thread
+                box["err"] = e
+
+        # a daemon thread: a call that never returns can't keep the process
+        # alive after the gate moves on
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        t.join(self.deadline)
+        if t.is_alive():
+            raise ProviderError(
+                f"{self.label} request gave no response within {self.deadline:g}s", status=None
+            )
+        if "err" in box:
+            raise box["err"]
+        return box["ok"]
+
     def chat(self, messages: list[dict[str, Any]], **overrides: Any) -> str:
         """One chat call, rate-limited, retried on transient failures.
         Per-call overrides merge into the payload (model, temperature, seed,
@@ -185,7 +218,7 @@ class ChatClient:
         last: Exception | None = None
         for attempt in range(self.retries):
             try:
-                return self._request(messages, **overrides).content
+                return self._request_with_deadline(messages, **overrides).content
             except Exception as e:  # noqa: BLE001, provider/network error
                 last = e
                 if not transient_error(e) or attempt == self.retries - 1:
@@ -212,7 +245,7 @@ class NvidiaNIMClient(ChatClient):
         )
 
     @classmethod
-    def from_env(cls, model: str = NIM_MODEL, **kwargs: Any) -> "NvidiaNIMClient":
+    def from_env(cls, model: str = NIM_MODEL, **kwargs: Any) -> NvidiaNIMClient:
         return cls(
             os.environ.get("NVIDIA_API_KEY", ""),
             model=os.environ.get("NIM_MODEL", model),
@@ -222,5 +255,6 @@ class NvidiaNIMClient(ChatClient):
 
 def client_from_keyfile(path: str, model: str = NIM_MODEL, **kwargs: Any) -> NvidiaNIMClient:
     """Convenience: read a bare API key from a file (e.g. ~/gateadapt/nvapi_key)."""
-    key = open(path).read().strip()
+    with open(path, encoding="utf-8") as f:
+        key = f.read().strip()
     return NvidiaNIMClient(api_key=key, model=model, **kwargs)

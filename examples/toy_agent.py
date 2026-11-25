@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+
 def _u(task_id: str, slot: int) -> float:
     h = hashlib.sha1(f"{task_id}|{slot}".encode()).digest()
     return int.from_bytes(h[:4], "big") / 2**32

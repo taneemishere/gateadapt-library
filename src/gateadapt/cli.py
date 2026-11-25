@@ -2,7 +2,9 @@
 
 Exit codes for `admit` and `sequence`: 0 COMMIT or SCOPE_CORRECT · 1 REJECT
 · 3 ABSTAIN_WITH_RECORD (unknown is not passed; `--abstain-ok` maps it to 0).
-2 stays argparse's usage error.
+Every command: 2 bad input (usage, files, scope, cache, ledger) · 4 the
+agent's run() failed. A crash never exits 1, so it can't read as REJECT.
+GATEADAPT_DEBUG=1 shows the full traceback.
 """
 
 from __future__ import annotations
@@ -11,44 +13,83 @@ import argparse
 import importlib
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from .decks import Deck, DeckRole, load_tasks
+from .errors import AgentError, InputError
 from .gate import Gate
-from .ledger import read_ledger
 from .models import LifecycleState, Mutation, Verdict
 from .replay import format_replay, replay
 from .stats import tasks_needed
+from .surface import code_fingerprint
 
-EXIT_PASS, EXIT_REJECT, EXIT_ABSTAIN = 0, 1, 3
+EXIT_PASS, EXIT_REJECT, EXIT_INPUT, EXIT_ABSTAIN, EXIT_AGENT = 0, 1, 2, 3, 4
 
 
 def _load_mapping(path: str) -> dict[str, Any]:
     p = Path(path)
-    text = p.read_text()
-    if p.suffix in (".yaml", ".yml"):
-        import yaml
+    if not p.is_file():
+        raise InputError(f"{path}: no such file")
+    text = p.read_text(encoding="utf-8")
+    try:
+        if p.suffix in (".yaml", ".yml"):
+            import yaml
 
-        return yaml.safe_load(text)
-    return json.loads(text)
+            data = yaml.safe_load(text)
+        else:
+            data = json.loads(text)
+    except Exception as e:  # noqa: BLE001, yaml and json raise different types
+        mark = getattr(e, "problem_mark", None)
+        if mark is not None:
+            detail = f"line {mark.line + 1}, column {mark.column + 1}: {e.problem}"
+        else:
+            detail = " ".join(str(e).split())
+        raise InputError(f"{path}: cannot parse ({detail})") from e
+    if not isinstance(data, dict):
+        raise InputError(f"{path}: expected a mapping at the top level")
+    return data
+
+
+def _load_mutation(path: str) -> Mutation:
+    try:
+        return Mutation.from_dict(_load_mapping(path))
+    except InputError as e:
+        msg = str(e)
+        raise InputError(msg if msg.startswith(path) else f"{path}: {msg}") from e
 
 
 def _load_run(spec: str):
     """'path/to/file.py:func' or 'module.path:func'."""
-    target, _, attr = spec.partition(":")
-    if not attr:
-        raise SystemExit(f"--run needs 'file.py:function' or 'module:function', got {spec!r}")
+    # rpartition: a Windows path ("C:\\work\\agent.py:run") has a colon of its own
+    target, _, attr = spec.rpartition(":")
+    # "C:\\agent.py" splits at the drive colon; a path-like tail means the
+    # function name is missing, not that the function is called "\\agent.py"
+    if not target or not attr or attr.endswith(".py") or any(c in attr for c in "/\\"):
+        raise InputError(f"expected 'file.py:function' or 'module:function', got {spec!r}")
     if target.endswith(".py"):
+        if not Path(target).is_file():
+            raise InputError(f"{target}: no such file")
         mod = importlib.util.spec_from_file_location("gateadapt_user_run", target)
         module = importlib.util.module_from_spec(mod)
-        mod.loader.exec_module(module)  # type: ignore[union-attr]
+        try:
+            mod.loader.exec_module(module)  # type: ignore[union-attr]
+        except Exception as e:  # noqa: BLE001, the user's module failed to import
+            raise AgentError(f"importing {target} raised {type(e).__name__}: {e}") from e
     else:
-        module = importlib.import_module(target)
+        try:
+            module = importlib.import_module(target)
+        except ImportError as e:
+            raise InputError(f"cannot import {target!r}: {e}") from e
     fn = module
     for part in attr.split("."):
+        if not hasattr(fn, part):
+            raise InputError(f"{target} has no {attr!r}")
         fn = getattr(fn, part)
+    if not callable(fn):
+        raise InputError(f"{spec} is not callable")
     return fn
 
 
@@ -59,6 +100,17 @@ def _build_gate(args, tasks_role="dev") -> Gate:
     reserve = load_tasks(args.reserve) if getattr(args, "reserve", None) else None
     generate = _load_run(args.generate) if getattr(args, "generate", None) else None
     run = _load_run(args.run) if getattr(args, "run", None) else None
+    name = getattr(args, "name", None)
+    if name is None and run is not None:
+        # the cache key carries a hash of the agent's code: the --run file
+        # (which a live_run closure's own source can't show) plus --code
+        target = args.run.rpartition(":")[0]
+        paths = ([target] if target.endswith(".py") else []) + list(getattr(args, "code", None) or [])
+        missing = [p for p in paths if not Path(p).exists()]
+        if missing:
+            raise InputError(f"--code {missing[0]}: no such file or directory")
+        base = getattr(run, "__qualname__", "run")
+        name = f"{base}#{code_fingerprint(paths)}" if paths else None
     return Gate(
         run=run,
         dev=dev,
@@ -75,7 +127,7 @@ def _build_gate(args, tasks_role="dev") -> Gate:
         seed=args.seed,
         cache_path=getattr(args, "cache", None),
         ledger_path=getattr(args, "ledger", None),
-        name=getattr(args, "name", None),
+        name=name,
     )
 
 
@@ -128,6 +180,11 @@ def _print_verdict(d) -> None:
             )
             parts.append(f"~{n['need']} more {what} at ±{n['at_effect']:.2f}")
         print(f"  underpowered: have {n['have']} in-scope · need " + " · ".join(parts))
+    if det.get("reason") == "family_budget_exhausted":
+        print(
+            f"  reason: family {det.get('family', '?')!r} has spent its alpha budget on "
+            "unresolved looks, so nothing was measured. Raise --wealth or start a new family"
+        )
     if "g0_violations" in det:
         for v in det["g0_violations"]:
             print(f"  g0: {v}")
@@ -151,7 +208,7 @@ def _print_verdict(d) -> None:
 
 def cmd_admit(args) -> int:
     cfg = _load_mapping(args.config)
-    mut = Mutation.from_dict(_load_mapping(args.mutation))
+    mut = _load_mutation(args.mutation)
     gate = _build_gate(args)
     d = gate.admit(cfg, mut)
     _print_verdict(d)
@@ -167,12 +224,20 @@ def _exit_code(verdicts: list[Verdict], abstain_ok: bool) -> int:
     return EXIT_PASS
 
 
+def _require_ledger(path: str | None) -> None:
+    # audit and status only read the record: a mistyped path must not pass
+    # for an empty ledger (admit, which writes, may start a new one)
+    if not path or not Path(path).is_file():
+        raise InputError(f"--ledger {path}: no such file")
+
+
 def cmd_audit(args) -> int:
+    _require_ledger(args.ledger)
     cfg = _load_mapping(args.config)
     gate = _build_gate(args)
     committed = gate.committed
     if not committed:
-        print("nothing committed (ledger empty or missing)")
+        print("nothing committed in the ledger")
         return 0
     print(f"re-auditing {len(committed)} committed mutation(s)")
     exit_code = 0
@@ -220,7 +285,7 @@ def cmd_sequence(args) -> int:
     # order is the experiment: a deferred artifact can only promote when its
     # partner arrives later, so the paths run exactly as given
     for path in args.mutations:
-        mut = Mutation.from_dict(_load_mapping(path))
+        mut = _load_mutation(path)
         d = gate.admit(cfg, mut)
         print(f"{mut.id}:")
         _print_verdict(d)
@@ -243,6 +308,8 @@ def cmd_sequence(args) -> int:
 
 def cmd_replay(args) -> int:
     models = ("9b", "27b") if args.model == "both" else (args.model,)
+    if args.autoharness and not (Path(args.autoharness) / "results").is_dir():
+        raise InputError(f"--autoharness {args.autoharness}: not an AutoHarness clone (no results/)")
     for m in models:
         print(format_replay(replay(m, root=args.autoharness, min_n=args.min_n)))
         print()
@@ -251,6 +318,7 @@ def cmd_replay(args) -> int:
 
 def cmd_status(args) -> int:
     """Rebuild lifecycle state from the ledger and report it per artifact."""
+    _require_ledger(args.ledger)
     gate = Gate(
         run=lambda t, c: 0.0,
         dev=Deck(role=DeckRole.DEV, items=[]),
@@ -271,8 +339,67 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_init(args) -> int:
+    """Copy the bundled examples into `<dir>/examples`, so the README
+    quickstart runs after a plain `pip install gateadapt`."""
+    from importlib.resources import files
+
+    try:
+        src = files("gateadapt._examples")
+    except ModuleNotFoundError:
+        # a source checkout: the wheel maps examples/ in at build time, here
+        # it is still the repo folder next to src/
+        src = Path(__file__).resolve().parents[2] / "examples"
+    dest = Path(args.dir) / "examples"
+    entries: list[tuple[Any, Path]] = []
+
+    def walk(node, out: Path) -> None:
+        for child in node.iterdir():
+            if child.name.startswith(("_", ".")):
+                continue  # __init__ / __pycache__ / dotfiles
+            if child.is_dir():
+                walk(child, out / child.name)
+            else:
+                entries.append((child, out / child.name))
+
+    walk(src, dest)
+    clash = [d for _, d in entries if d.exists()]
+    if clash and not args.force:
+        print(
+            f"{len(clash)} file(s) already exist under {dest}, e.g. {clash[0]}; "
+            "pass --force to overwrite",
+            file=sys.stderr,
+        )
+        return 2
+    for child, target in entries:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(child.read_bytes())
+    print(f"wrote {len(entries)} example files to {dest}")
+    print("try: gateadapt admit examples/mutations/refusal_contract.yaml \\")
+    print("       --config examples/config.yaml --tasks examples/tasks_dev.jsonl \\")
+    print("       --probe examples/tasks_probe.jsonl --run examples/toy_agent.py:run")
+    return 0
+
+
+def _safe_stdio() -> None:
+    """Verdict lines use non-ASCII (·, α, ±, →). A cp1252 console or pipe,
+    the Windows default, can't encode them and would crash the CLI after
+    the measurement ran; degrade those characters instead."""
+    for stream in (sys.stdout, sys.stderr):
+        enc = getattr(stream, "encoding", None) or "ascii"
+        try:
+            "·α±→".encode(enc)
+        except (UnicodeEncodeError, LookupError):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                reconfigure(errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="gateadapt", description="CI for agent changes")
+    from . import __version__
+
+    ap.add_argument("--version", action="version", version=f"gateadapt {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("admit", help="G0+G1 admission check on one mutation")
@@ -293,7 +420,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--cache", help="episode cache path (.json)")
     p.add_argument("--ledger", help="ledger path (.jsonl)")
-    p.add_argument("--name", help="run-name for cache keys (bump when the agent changes)")
+    p.add_argument("--name", help="fixed cache run-name (default: run's name + a hash of its code)")
+    p.add_argument("--code", action="append", metavar="PATH",
+                   help="extra agent file or dir to hash into the cache key (repeatable)")
     p.add_argument("--abstain-ok", action="store_true", help="exit 0 on abstain instead of 3")
     p.set_defaults(fn=cmd_admit)
 
@@ -316,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cache")
     p.add_argument("--ledger")
     p.add_argument("--name")
+    p.add_argument("--code", action="append", metavar="PATH")
     p.add_argument("--abstain-ok", action="store_true", help="exit 0 on abstain instead of 3")
     p.set_defaults(fn=cmd_sequence)
 
@@ -331,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--cache")
     p.add_argument("--name")
+    p.add_argument("--code", action="append", metavar="PATH")
     p.set_defaults(fn=cmd_audit)
 
     p = sub.add_parser("power", help="how many in-scope tasks a verdict needs")
@@ -349,6 +480,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--min-n", type=int, default=8)
     p.set_defaults(fn=cmd_replay)
 
+    p = sub.add_parser("init", help="copy the bundled examples into ./examples")
+    p.add_argument("dir", nargs="?", default=".", help="target directory (default: .)")
+    p.add_argument("--force", action="store_true", help="overwrite existing files")
+    p.set_defaults(fn=cmd_init)
+
     p = sub.add_parser(
         "status", help="lifecycle state of every artifact in a ledger"
     )
@@ -356,8 +492,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.set_defaults(fn=cmd_status)
 
+    _safe_stdio()
     args = ap.parse_args(argv)
-    return args.fn(args)
+    try:
+        return args.fn(args)
+    except (InputError, AgentError, OSError) as e:
+        if os.environ.get("GATEADAPT_DEBUG"):
+            raise
+        code = EXIT_AGENT if isinstance(e, AgentError) else EXIT_INPUT
+        print(f"gateadapt: error: {e}", file=sys.stderr)
+        return code
 
 
 if __name__ == "__main__":
